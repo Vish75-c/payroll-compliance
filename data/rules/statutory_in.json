@@ -1,0 +1,432 @@
+{
+  "_comment": "Government rules as dated data. A rule change is a new entry with a later effective_from; old entries are never edited. Loaded by `manage.py seed_demo` (idempotent).",
+  "versions": [
+    {
+      "key": "pf",
+      "jurisdiction": "IN",
+      "effective_from": "2014-09-01",
+      "title": "EPF: 12% + 12%, wage ceiling ₹15,000",
+      "note": "EPF & MP Act. Wage ceiling ₹15,000 since Sep 2014.",
+      "payload": {
+        "employee_rate": "0.12",
+        "employer_rate": "0.12",
+        "wage_ceiling": "15000",
+        "eps_rate": "0.0833",
+        "eps_wage_ceiling": "15000",
+        "wage_components": [
+          "basic",
+          "da"
+        ],
+        "rounding": "nearest",
+        "due_day_next_month": 15
+      }
+    },
+    {
+      "key": "esi",
+      "jurisdiction": "IN",
+      "effective_from": "2019-07-01",
+      "title": "ESI: 0.75% + 3.25% when gross ≤ ₹21,000",
+      "note": "Rates revised 1 Jul 2019; ceiling ₹21,000 since 1 Jan 2017.",
+      "payload": {
+        "threshold": "21000",
+        "employee_rate": "0.0075",
+        "employer_rate": "0.0325",
+        "rounding": "up",
+        "due_day_next_month": 15
+      }
+    },
+    {
+      "key": "esi",
+      "jurisdiction": "IN",
+      "effective_from": "2019-09-06",
+      "title": "ESI: contribution period coverage and employee daily wage exemption",
+      "note": "ESI Central Rules 2, 50 and 52. The ₹176 employee exemption was effective 6 Sep 2019. This engine picks rules on the first day of the pay month.",
+      "payload": {
+        "threshold": "21000",
+        "employee_rate": "0.0075",
+        "employer_rate": "0.0325",
+        "employee_daily_wage_exemption": "176",
+        "rounding": "up",
+        "due_day_next_month": 15
+      }
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-KA",
+      "effective_from": "2023-04-01",
+      "title": "Karnataka PT: ₹200 when gross ≥ ₹25,000",
+      "note": "Simplified H-02 rule (Karnataka). Add a new version with a later start date to change it.",
+      "payload": {
+        "state_name": "Karnataka",
+        "slabs": [
+          {
+            "min": "0",
+            "amount": "0"
+          },
+          {
+            "min": "25000",
+            "amount": "200"
+          }
+        ],
+        "due_day_next_month": 20
+      }
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-MH",
+      "effective_from": "2023-04-01",
+      "title": "Maharashtra PT (second state, stretch goal)",
+      "note": "Men: >₹7,500 ₹175, >₹10,000 ₹200 (₹300 in Feb). Women: >₹25,000 ₹200 (₹300 in Feb).",
+      "payload": {
+        "state_name": "Maharashtra",
+        "slabs": [
+          {
+            "min": "0",
+            "gender": "M",
+            "amount": "0"
+          },
+          {
+            "above": "7500",
+            "gender": "M",
+            "amount": "175"
+          },
+          {
+            "above": "10000",
+            "gender": "M",
+            "amount": "200"
+          },
+          {
+            "above": "10000",
+            "gender": "M",
+            "months": [
+              2
+            ],
+            "amount": "300"
+          },
+          {
+            "min": "0",
+            "gender": "F",
+            "amount": "0"
+          },
+          {
+            "above": "25000",
+            "gender": "F",
+            "amount": "200"
+          },
+          {
+            "above": "25000",
+            "gender": "F",
+            "months": [
+              2
+            ],
+            "amount": "300"
+          }
+        ],
+        "due_day_next_month": 30
+      }
+    },
+    {
+      "key": "income_tax",
+      "jurisdiction": "IN",
+      "effective_from": "2025-04-01",
+      "title": "New regime FY 2025-26 (no tax up to ₹12 lakh)",
+      "note": "Finance Act 2025: slabs of ₹4 lakh, standard deduction ₹75,000, 87A rebate up to ₹60,000 with marginal relief, 4% cess.",
+      "payload": {
+        "regime": "new",
+        "standard_deduction": "75000",
+        "slabs": [
+          {
+            "upto": "400000",
+            "rate": "0"
+          },
+          {
+            "upto": "800000",
+            "rate": "0.05"
+          },
+          {
+            "upto": "1200000",
+            "rate": "0.10"
+          },
+          {
+            "upto": "1600000",
+            "rate": "0.15"
+          },
+          {
+            "upto": "2000000",
+            "rate": "0.20"
+          },
+          {
+            "upto": "2400000",
+            "rate": "0.25"
+          },
+          {
+            "upto": null,
+            "rate": "0.30"
+          }
+        ],
+        "rebate": {
+          "income_upto": "1200000",
+          "max_rebate": "60000",
+          "marginal_relief": true
+        },
+        "surcharge": [
+          {
+            "above": "5000000",
+            "rate": "0.10"
+          },
+          {
+            "above": "10000000",
+            "rate": "0.15"
+          },
+          {
+            "above": "20000000",
+            "rate": "0.25"
+          }
+        ],
+        "surcharge_marginal_relief": true,
+        "cess_rate": "0.04",
+        "due_day_next_month": 7
+      }
+    },
+    {
+      "key": "wage_definition",
+      "jurisdiction": "IN",
+      "effective_from": "2025-11-21",
+      "title": "Labour Codes: excluded pay above 50% counts as wages",
+      "note": "Code on Wages / Code on Social Security, in force 21 Nov 2025. Applies from December 2025 payroll (rules are read as of the 1st of the month).",
+      "payload": {
+        "enabled": true,
+        "wage_components": [
+          "basic",
+          "da"
+        ],
+        "max_exclusion_share": "0.5",
+        "applies_to": [
+          "pf"
+        ]
+      }
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-TG",
+      "effective_from": "2025-04-01",
+      "title": "Telangana PT: ₹150 above ₹15,000, ₹200 above ₹20,000",
+      "note": "Telangana professional tax on monthly gross pay. From secondary sources (payroll and tax guides), not the state's own notification: verify before relying on it. Sources: https://www.zoho.com/in/payroll/academy/payroll-laws/telangana/professional-tax.html ; https://cleartax.in/s/professional-tax-telangana ; https://www.greythr.com/wiki/acts/professional-tax-telangana",
+      "payload": {
+        "slabs": [
+          {
+            "min": "0",
+            "amount": "0"
+          },
+          {
+            "above": "15000",
+            "amount": "150"
+          },
+          {
+            "above": "20000",
+            "amount": "200"
+          }
+        ],
+        "due_day_next_month": 10,
+        "state_name": "Telangana"
+      }
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-AP",
+      "effective_from": "2025-04-01",
+      "title": "Andhra Pradesh PT: ₹150 above ₹15,000, ₹200 above ₹20,000",
+      "note": "Andhra Pradesh professional tax on monthly gross pay. One source adds ₹300 in March; the others do not, so it is not included. From secondary sources (payroll and tax guides), not the state's own notification: verify before relying on it. Sources: https://cleartax.in/s/professional-tax-andhra-pradesh ; https://www.zoho.com/in/payroll/academy/payroll-laws/andhra-pradesh/professional-tax.html ; https://www.greythr.com/wiki/acts/professional-tax-andhra-pradesh",
+      "payload": {
+        "slabs": [
+          {
+            "min": "0",
+            "amount": "0"
+          },
+          {
+            "above": "15000",
+            "amount": "150"
+          },
+          {
+            "above": "20000",
+            "amount": "200"
+          }
+        ],
+        "due_day_next_month": 10,
+        "state_name": "Andhra Pradesh"
+      }
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-GJ",
+      "effective_from": "2025-04-01",
+      "title": "Gujarat PT: ₹200 above ₹12,000",
+      "note": "Gujarat professional tax on monthly gross pay. Revised from 24 May 2022 per one source. Sources differ on exactly ₹12,000; it is taken as exempt. From secondary sources (payroll and tax guides), not the state's own notification: verify before relying on it. No due day: the sources disagree, so add 'due_day_next_month' before a month with this rule is finalised. Sources: https://factohr.com/professional-tax/gujarat/ ; https://www.greythr.com/wiki/acts/professional-tax-gujarat/ ; https://cleartax.in/s/professional-tax-gujarat",
+      "payload": {
+        "slabs": [
+          {
+            "min": "0",
+            "amount": "0"
+          },
+          {
+            "above": "12000",
+            "amount": "200"
+          }
+        ],
+        "state_name": "Gujarat"
+      }
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-AS",
+      "effective_from": "2025-04-01",
+      "title": "Assam PT: ₹180 above ₹15,000, ₹208 from ₹25,000",
+      "note": "Assam professional tax on monthly gross pay. The April 2025 revision as reported. The state's 2014 schedule puts exactly ₹15,000 in the ₹180 slab. From secondary sources (payroll and tax guides), not the state's own notification: verify before relying on it. Sources: https://cleartax.in/s/professional-tax-assam ; https://greythr.freshdesk.com/support/solutions/articles/1060000142757-what-are-the-revised-professional-tax-pt-slabs-applicable-in-assam-from-april-2025- ; https://tax.assam.gov.in/AssamTimsInfo/content/professional_tax.html",
+      "payload": {
+        "slabs": [
+          {
+            "min": "0",
+            "amount": "0"
+          },
+          {
+            "above": "15000",
+            "amount": "180"
+          },
+          {
+            "min": "25000",
+            "amount": "208"
+          }
+        ],
+        "due_day_next_month": 28,
+        "state_name": "Assam"
+      }
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-OR",
+      "effective_from": "2025-04-01",
+      "title": "Odisha PT: ₹125 above ₹13,304, ₹200 above ₹25,000 (₹300 in February)",
+      "note": "Odisha professional tax on monthly gross pay. One source says Odisha stops PT from 1 April 2026; not confirmed, so not added. From secondary sources (payroll and tax guides), not the state's own notification: verify before relying on it. No due day: the sources disagree, so add 'due_day_next_month' before a month with this rule is finalised. Sources: https://cleartax.in/s/professional-tax-odisha ; https://factohr.com/professional-tax/odisha/ ; https://odishatax.gov.in/professional_tax.php",
+      "payload": {
+        "slabs": [
+          {
+            "min": "0",
+            "amount": "0"
+          },
+          {
+            "above": "13304",
+            "amount": "125"
+          },
+          {
+            "above": "25000",
+            "amount": "200"
+          },
+          {
+            "above": "25000",
+            "months": [
+              2
+            ],
+            "amount": "300"
+          }
+        ],
+        "state_name": "Odisha"
+      }
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-SK",
+      "effective_from": "2025-04-01",
+      "title": "Sikkim PT: ₹125 above ₹20,000, ₹150 above ₹30,000, ₹200 above ₹40,000",
+      "note": "Sikkim professional tax on monthly gross pay. From secondary sources (payroll and tax guides), not the state's own notification: verify before relying on it. No due day: the sources disagree, so add 'due_day_next_month' before a month with this rule is finalised. Sources: https://www.zoho.com/in/payroll/academy/payroll-laws/sikkim/professional-tax.html ; https://factohr.com/professional-tax/sikkim/ ; https://www.startupgrantsindia.com/calculators/operations/professional-tax/sikkim",
+      "payload": {
+        "slabs": [
+          {
+            "min": "0",
+            "amount": "0"
+          },
+          {
+            "above": "20000",
+            "amount": "125"
+          },
+          {
+            "above": "30000",
+            "amount": "150"
+          },
+          {
+            "above": "40000",
+            "amount": "200"
+          }
+        ],
+        "state_name": "Sikkim"
+      }
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-TR",
+      "effective_from": "2025-04-01",
+      "title": "Tripura PT: ₹150 above ₹7,500, ₹208 above ₹15,000",
+      "note": "Tripura professional tax on monthly gross pay. Per the Tripura Gazette notification of 25 July 2018 as reported. Sources word the ₹7,500 boundary differently; ₹7,500 is taken as exempt. From secondary sources (payroll and tax guides), not the state's own notification: verify before relying on it. No due day: the sources disagree, so add 'due_day_next_month' before a month with this rule is finalised. Sources: https://www.zoho.com/in/payroll/academy/payroll-laws/tripura/professional-tax.html ; https://www.startupgrantsindia.com/calculators/operations/professional-tax/tripura ; https://calcguru.in/?p=728",
+      "payload": {
+        "slabs": [
+          {
+            "min": "0",
+            "amount": "0"
+          },
+          {
+            "above": "7500",
+            "amount": "150"
+          },
+          {
+            "above": "15000",
+            "amount": "208"
+          }
+        ],
+        "state_name": "Tripura"
+      }
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-DL",
+      "effective_from": "2025-04-01",
+      "title": "Delhi: no professional tax",
+      "payload": {
+        "levied": false,
+        "state_name": "Delhi"
+      },
+      "note": "Delhi does not charge professional tax on salaries. From secondary sources (payroll and tax guides), not the state's own notification: verify before relying on it. Sources: https://razorpay.com/learn/professional-tax/ ; https://www.paisabazaar.com/tax/professional-tax/ ; https://www.onsurity.com/guides/professional-tax-by-state"
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-HR",
+      "effective_from": "2025-04-01",
+      "title": "Haryana: no professional tax",
+      "payload": {
+        "levied": false,
+        "state_name": "Haryana"
+      },
+      "note": "Haryana does not charge professional tax on salaries. From secondary sources (payroll and tax guides), not the state's own notification: verify before relying on it. Sources: https://razorpay.com/learn/professional-tax/ ; https://www.paisabazaar.com/tax/professional-tax/ ; https://www.onsurity.com/guides/professional-tax-by-state"
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-UP",
+      "effective_from": "2025-04-01",
+      "title": "Uttar Pradesh: no professional tax",
+      "payload": {
+        "levied": false,
+        "state_name": "Uttar Pradesh"
+      },
+      "note": "Uttar Pradesh does not charge professional tax on salaries. From secondary sources (payroll and tax guides), not the state's own notification: verify before relying on it. Sources: https://razorpay.com/learn/professional-tax/ ; https://www.paisabazaar.com/tax/professional-tax/ ; https://www.onsurity.com/guides/professional-tax-by-state"
+    },
+    {
+      "key": "professional_tax",
+      "jurisdiction": "IN-UT",
+      "effective_from": "2025-04-01",
+      "title": "Uttarakhand: no professional tax",
+      "payload": {
+        "levied": false,
+        "state_name": "Uttarakhand"
+      },
+      "note": "Uttarakhand does not charge professional tax on salaries. From secondary sources (payroll and tax guides), not the state's own notification: verify before relying on it. Sources: https://razorpay.com/learn/professional-tax/ ; https://www.paisabazaar.com/tax/professional-tax/ ; https://www.onsurity.com/guides/professional-tax-by-state"
+    }
+  ]
+}

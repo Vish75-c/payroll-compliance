@@ -1,0 +1,15 @@
+{
+  "_comment": "Company choices for case B, as company-setting versions (same keys as the Rules & settings screen). Hand-worked expected numbers are in expected.csv.",
+  "effective_from": "2025-04-01",
+  "settings": {
+    "lop": {"divisor": 30, "day_rate_rounding": null},
+    "pf_policy": {"wage_base": "full", "employer_wage_base": "same", "arrears_contribution": "recompute_delta"},
+    "rounding": {"method": "nearest", "earnings": "per_component"},
+    "esi_policy": {"eligibility_wage": "gross_this_month", "contribution_wage": "gross_this_month"},
+    "pt_policy": {"basis": "gross_this_month"},
+    "tds_policy": {"method": "projected_annual", "one_time_income": "spread", "annual_tax_rounding_unit": 1, "monthly_rounding": "nearest"}
+  },
+  "data": "data/brickline/brickline_hr_data.xlsx",
+  "paid_months": ["2025-04", "2025-05", "2025-06"],
+  "instructions": {"2025-07": ["Give Priya a ₹10,000 one-time bonus this month"]}
+}

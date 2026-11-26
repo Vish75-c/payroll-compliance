@@ -1,0 +1,556 @@
+{
+ "_comment": "Facts of the onboarding sample company; files in this folder are made from it by scripts/make_northwind_data.py.",
+ "company": {
+  "code": "northwind",
+  "name": "Northwind Interiors Pvt Ltd",
+  "city": "Mumbai",
+  "state": "MH",
+  "pan": "AABCN4321K",
+  "tan": "MUMN04321E",
+  "pf_establishment_code": "MHBAN0054321000",
+  "esi_employer_code": "34000543210001001",
+  "pay_day": 1,
+  "first_month": "2025-10",
+  "settings": {
+   "lop": {
+    "divisor": "30",
+    "day_rate_rounding": null
+   }
+  }
+ },
+ "employees": [
+  {
+   "code": "NW001",
+   "name": "Farah Siddiqui",
+   "gender": "F",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2018-07-02",
+   "department": "Leadership",
+   "designation": "Managing Director"
+  },
+  {
+   "code": "NW002",
+   "name": "Rohan Mehta",
+   "gender": "M",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2019-01-14",
+   "department": "Projects",
+   "designation": "Head of Projects"
+  },
+  {
+   "code": "NW003",
+   "name": "Ishita Banerjee",
+   "gender": "F",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2019-09-02",
+   "department": "Design",
+   "designation": "Principal Designer"
+  },
+  {
+   "code": "NW004",
+   "name": "Kunal Deshpande",
+   "gender": "M",
+   "location": "Pune, Maharashtra",
+   "doj": "2020-02-17",
+   "department": "Projects",
+   "designation": "Site Head, Pune"
+  },
+  {
+   "code": "NW005",
+   "name": "Anaya Kulkarni",
+   "gender": "F",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2020-06-08",
+   "department": "Design",
+   "designation": "Senior Designer"
+  },
+  {
+   "code": "NW006",
+   "name": "Vikram Shetty",
+   "gender": "M",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2020-11-23",
+   "department": "Finance",
+   "designation": "Finance Manager"
+  },
+  {
+   "code": "NW007",
+   "name": "Pooja Nair",
+   "gender": "F",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2021-03-01",
+   "department": "Design",
+   "designation": "Designer"
+  },
+  {
+   "code": "NW008",
+   "name": "Sameer Khan",
+   "gender": "M",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2021-05-17",
+   "department": "Procurement",
+   "designation": "Procurement Lead"
+  },
+  {
+   "code": "NW009",
+   "name": "Ritu Agarwal",
+   "gender": "F",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2021-08-09",
+   "department": "Projects",
+   "designation": "Project Manager"
+  },
+  {
+   "code": "NW010",
+   "name": "Aditya Joshi",
+   "gender": "M",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2021-12-06",
+   "department": "Projects",
+   "designation": "Site Engineer"
+  },
+  {
+   "code": "NW011",
+   "name": "Neha Patil",
+   "gender": "F",
+   "location": "Pune, Maharashtra",
+   "doj": "2022-01-10",
+   "department": "Projects",
+   "designation": "Site Engineer"
+  },
+  {
+   "code": "NW012",
+   "name": "Harsh Vora",
+   "gender": "M",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2022-04-04",
+   "department": "Design",
+   "designation": "3D Visualiser"
+  },
+  {
+   "code": "NW013",
+   "name": "Sana Qureshi",
+   "gender": "F",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2022-07-18",
+   "department": "People",
+   "designation": "HR Executive"
+  },
+  {
+   "code": "NW014",
+   "name": "Manoj Pawar",
+   "gender": "M",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2022-10-03",
+   "department": "Procurement",
+   "designation": "Buyer"
+  },
+  {
+   "code": "NW015",
+   "name": "Divya Menon",
+   "gender": "F",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2023-01-09",
+   "department": "Finance",
+   "designation": "Accountant"
+  },
+  {
+   "code": "NW016",
+   "name": "Tushar Gaikwad",
+   "gender": "M",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2023-04-03",
+   "department": "Projects",
+   "designation": "Site Supervisor"
+  },
+  {
+   "code": "NW017",
+   "name": "Kavita Rane",
+   "gender": "F",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2023-07-10",
+   "department": "Design",
+   "designation": "Junior Designer"
+  },
+  {
+   "code": "NW018",
+   "name": "Imran Shaikh",
+   "gender": "M",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2023-10-16",
+   "department": "Projects",
+   "designation": "Carpentry Supervisor"
+  },
+  {
+   "code": "NW019",
+   "name": "Shruti Jadhav",
+   "gender": "F",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2024-01-08",
+   "department": "Front office",
+   "designation": "Office Coordinator"
+  },
+  {
+   "code": "NW020",
+   "name": "Ganesh More",
+   "gender": "M",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2024-03-11",
+   "department": "Projects",
+   "designation": "Site Technician"
+  },
+  {
+   "code": "NW021",
+   "name": "Rhea D'Souza",
+   "gender": "F",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2025-06-09",
+   "department": "Design",
+   "designation": "Design Associate"
+  },
+  {
+   "code": "NW022",
+   "name": "Prakash Sawant",
+   "gender": "M",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2025-08-01",
+   "department": "Projects",
+   "designation": "Site Technician"
+  },
+  {
+   "code": "NW023",
+   "name": "Meghna Iyer",
+   "gender": "F",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2025-11-17",
+   "department": "Front office",
+   "designation": "Receptionist"
+  },
+  {
+   "code": "NW024",
+   "name": "Akash Thakur",
+   "gender": "M",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2026-01-05",
+   "department": "Projects",
+   "designation": "Helper"
+  },
+  {
+   "code": "NW025",
+   "name": "Sunil Kamble",
+   "gender": "M",
+   "location": "Mumbai, Maharashtra",
+   "doj": "2024-09-02",
+   "department": "Front office",
+   "designation": "Office Assistant (part-time)"
+  }
+ ],
+ "salaries": [
+  {
+   "code": "NW001",
+   "effective_from": "2025-04-01",
+   "basic": 160000,
+   "hra": 64000,
+   "special": 96000,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW002",
+   "effective_from": "2025-04-01",
+   "basic": 120000,
+   "hra": 48000,
+   "special": 72000,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW003",
+   "effective_from": "2025-04-01",
+   "basic": 72000,
+   "hra": 36000,
+   "special": 72000,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW004",
+   "effective_from": "2025-04-01",
+   "basic": 75000,
+   "hra": 30000,
+   "special": 45000,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW005",
+   "effective_from": "2025-04-01",
+   "basic": 62500,
+   "hra": 25000,
+   "special": 37500,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW006",
+   "effective_from": "2025-04-01",
+   "basic": 55000,
+   "hra": 22000,
+   "special": 33000,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW007",
+   "effective_from": "2025-04-01",
+   "basic": 47500,
+   "hra": 19000,
+   "special": 28500,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW008",
+   "effective_from": "2025-04-01",
+   "basic": 42500,
+   "hra": 17000,
+   "special": 25500,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW009",
+   "effective_from": "2025-04-01",
+   "basic": 36000,
+   "hra": 14400,
+   "special": 21600,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW010",
+   "effective_from": "2025-04-01",
+   "basic": 32500,
+   "hra": 13000,
+   "special": 19500,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW011",
+   "effective_from": "2025-04-01",
+   "basic": 29000,
+   "hra": 11600,
+   "special": 17400,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW012",
+   "effective_from": "2025-04-01",
+   "basic": 26000,
+   "hra": 10400,
+   "special": 15600,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW013",
+   "effective_from": "2025-04-01",
+   "basic": 23000,
+   "hra": 9200,
+   "special": 13800,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW014",
+   "effective_from": "2025-04-01",
+   "basic": 20000,
+   "hra": 8000,
+   "special": 12000,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW015",
+   "effective_from": "2025-04-01",
+   "basic": 18000,
+   "hra": 7200,
+   "special": 10800,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW016",
+   "effective_from": "2025-04-01",
+   "basic": 16000,
+   "hra": 6400,
+   "special": 9600,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW017",
+   "effective_from": "2025-04-01",
+   "basic": 14000,
+   "hra": 5600,
+   "special": 8400,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW018",
+   "effective_from": "2025-04-01",
+   "basic": 13000,
+   "hra": 5200,
+   "special": 7800,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW019",
+   "effective_from": "2025-04-01",
+   "basic": 12000,
+   "hra": 4800,
+   "special": 7200,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW020",
+   "effective_from": "2025-04-01",
+   "basic": 10500,
+   "hra": 4200,
+   "special": 6300,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW021",
+   "effective_from": "2025-06-09",
+   "basic": 10000,
+   "hra": 5600,
+   "special": 12400,
+   "recorded_on": "2025-06-09"
+  },
+  {
+   "code": "NW022",
+   "effective_from": "2025-08-01",
+   "basic": 9750,
+   "hra": 3900,
+   "special": 5850,
+   "recorded_on": "2025-08-01"
+  },
+  {
+   "code": "NW023",
+   "effective_from": "2025-11-17",
+   "basic": 7500,
+   "hra": 3000,
+   "special": 4500,
+   "recorded_on": "2025-11-17"
+  },
+  {
+   "code": "NW024",
+   "effective_from": "2026-01-05",
+   "basic": 9000,
+   "hra": 3600,
+   "special": 5400,
+   "recorded_on": "2026-01-05"
+  },
+  {
+   "code": "NW025",
+   "effective_from": "2025-04-01",
+   "basic": 4900,
+   "hra": 1960,
+   "special": 2940,
+   "recorded_on": "2025-03-28"
+  },
+  {
+   "code": "NW005",
+   "effective_from": "2025-11-01",
+   "basic": 70000,
+   "hra": 28000,
+   "special": 42000,
+   "recorded_on": "2026-01-08"
+  },
+  {
+   "code": "NW014",
+   "effective_from": "2025-12-01",
+   "basic": 22000,
+   "hra": 8800,
+   "special": 13200,
+   "recorded_on": "2025-11-25"
+  }
+ ],
+ "leave": [
+  {
+   "code": "NW007",
+   "type": "Loss of Pay",
+   "from": "2025-10-14",
+   "to": "2025-10-15",
+   "days": 2,
+   "status": "Approved"
+  },
+  {
+   "code": "NW010",
+   "type": "Sick Leave",
+   "from": "2025-10-20",
+   "to": "2025-10-21",
+   "days": 2,
+   "status": "Approved"
+  },
+  {
+   "code": "NW016",
+   "type": "Casual Leave",
+   "from": "2025-10-31",
+   "to": "2025-10-31",
+   "days": 1,
+   "status": "Approved"
+  },
+  {
+   "code": "NW025",
+   "type": "Loss of Pay",
+   "from": "2025-11-07",
+   "to": "2025-11-07",
+   "days": 0.5,
+   "status": "Approved"
+  },
+  {
+   "code": "NW013",
+   "type": "Loss of Pay",
+   "from": "2025-11-12",
+   "to": "2025-11-12",
+   "days": 1,
+   "status": "Rejected"
+  },
+  {
+   "code": "NW009",
+   "type": "Earned Leave",
+   "from": "2025-11-24",
+   "to": "2025-11-28",
+   "days": 5,
+   "status": "Approved"
+  },
+  {
+   "code": "NW012",
+   "type": "Loss of Pay",
+   "from": "2025-12-22",
+   "to": "2025-12-24",
+   "days": 3,
+   "status": "Approved"
+  },
+  {
+   "code": "NW017",
+   "type": "Casual Leave",
+   "from": "2025-12-26",
+   "to": "2025-12-26",
+   "days": 1,
+   "status": "Requested"
+  },
+  {
+   "code": "NW018",
+   "type": "Loss of Pay",
+   "from": "2026-01-29",
+   "to": "2026-02-03",
+   "days": 5,
+   "status": "Approved"
+  },
+  {
+   "code": "NW022",
+   "type": "Loss of Pay",
+   "from": "2026-02-10",
+   "to": "2026-02-10",
+   "days": 1,
+   "status": "Approved"
+  },
+  {
+   "code": "NW003",
+   "type": "Sick Leave",
+   "from": "2026-02-16",
+   "to": "2026-02-17",
+   "days": 2,
+   "status": "Approved"
+  }
+ ]
+}

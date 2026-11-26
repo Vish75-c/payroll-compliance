@@ -1,0 +1,25 @@
+# Secrets: never commit these. .env.example (no real values) is kept.
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node and the built screens (rebuilt by scripts/start.sh)
+node_modules/
+frontend/dist/
+
+# Local state: databases, the downloaded Horilla copy, logs, uploads and generated files
+var/
+media/
+output/
+*.log
+*.sqlite3
+
+# OS and editor clutter
+.DS_Store
+*.zip

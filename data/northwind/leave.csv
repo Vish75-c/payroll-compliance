@@ -1,0 +1,12 @@
+Emp Code,Leave Category,Leave From,Leave To,No of Days,Approval Status
+NW007,Loss of Pay,2025-10-14,2025-10-15,2,Approved
+NW010,Sick Leave,2025-10-20,2025-10-21,2,Approved
+NW016,Casual Leave,2025-10-31,2025-10-31,1,Approved
+NW025,Loss of Pay,2025-11-07,2025-11-07,0.5,Approved
+NW013,Loss of Pay,2025-11-12,2025-11-12,1,Rejected
+NW009,Earned Leave,2025-11-24,2025-11-28,5,Approved
+NW012,Loss of Pay,2025-12-22,2025-12-24,3,Approved
+NW017,Casual Leave,2025-12-26,2025-12-26,1,Requested
+NW018,Loss of Pay,2026-01-29,2026-02-03,5,Approved
+NW022,Loss of Pay,2026-02-10,2026-02-10,1,Approved
+NW003,Sick Leave,2026-02-16,2026-02-17,2,Approved

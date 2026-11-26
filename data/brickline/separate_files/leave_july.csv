@@ -1,0 +1,60 @@
+Employee ID,Leave Type,From,To,Days,Status
+BL017,Sick Leave,2025-04-01,2025-04-02,2,Approved
+BL057,Casual Leave,2025-04-02,2025-04-02,1,Approved
+BL058,Casual Leave,2025-04-02,2025-04-02,1,Approved
+BL049,Sick Leave,2025-04-07,2025-04-07,1,Rejected
+BL031,Sick Leave,2025-04-08,2025-04-09,2,Rejected
+BL013,Casual Leave,2025-04-15,2025-04-16,2,Approved
+BL032,Casual Leave,2025-04-21,2025-04-21,1,Approved
+BL043,Casual Leave,2025-05-06,2025-05-07,2,Approved
+BL008,Sick Leave,2025-05-12,2025-05-12,1,Approved
+BL052,Loss of Pay,2025-05-12,2025-05-12,1,Approved
+BL067,Casual Leave,2025-05-12,2025-05-12,1,Approved
+BL009,Sick Leave,2025-05-13,2025-05-15,3,Approved
+BL052,Loss of Pay,2025-05-13,2025-05-13,1,Rejected
+BL058,Earned Leave,2025-05-13,2025-05-13,1,Approved
+BL072,Casual Leave,2025-05-13,2025-05-13,1,Approved
+BL027,Sick Leave,2025-05-19,2025-05-20,2,Approved
+BL052,Sick Leave,2025-05-26,2025-05-27,2,Rejected
+BL054,Sick Leave,2025-06-02,2025-06-02,1,Approved
+BL075,Loss of Pay,2025-06-02,2025-06-02,1,Approved
+BL023,Sick Leave,2025-06-03,2025-06-03,1,Approved
+BL038,Casual Leave,2025-06-03,2025-06-03,1,Approved
+BL078,Sick Leave,2025-06-04,2025-06-05,2,Approved
+BL004,Sick Leave,2025-06-09,2025-06-10,2,Approved
+BL019,Sick Leave,2025-06-09,2025-06-10,2,Approved
+BL060,Earned Leave,2025-06-09,2025-06-09,1,Rejected
+BL048,Loss of Pay,2025-06-11,2025-06-13,3,Rejected
+BL078,Sick Leave,2025-06-11,2025-06-11,1,Approved
+BL005,Loss of Pay,2025-06-16,2025-06-16,1,Approved
+BL010,Casual Leave,2025-06-17,2025-06-17,1,Approved
+BL074,Loss of Pay,2025-06-18,2025-06-19,2,Approved
+BL032,Casual Leave,2025-06-23,2025-06-23,1,Approved
+BL054,Casual Leave,2025-06-23,2025-06-24,2,Approved
+BL072,Sick Leave,2025-06-23,2025-06-23,1,Approved
+BL030,Casual Leave,2025-06-25,2025-06-26,2,Approved
+BL051,Loss of Pay,2025-06-25,2025-06-26,2,Rejected
+BL076,Casual Leave,2025-07-02,2025-07-02,1,Approved
+BL036,Casual Leave,2025-07-07,2025-07-07,1,Approved
+BL038,Sick Leave,2025-07-07,2025-07-08,2,Rejected
+BL015,Casual Leave,2025-07-08,2025-07-08,1,Requested
+BL055,Sick Leave,2025-07-09,2025-07-10,2,Approved
+BL002,Loss of Pay,2025-07-14,2025-07-16,3,Approved
+BL043,Casual Leave,2025-07-16,2025-07-16,1,Approved
+BL068,Casual Leave,2025-07-16,2025-07-18,3,Requested
+BL073,Sick Leave,2025-07-16,2025-07-17,2,Approved
+BL003,Casual Leave,2025-07-21,2025-07-22,2,Approved
+BL019,Sick Leave,2025-07-21,2025-07-22,2,Rejected
+BL051,Casual Leave,2025-07-23,2025-07-25,3,Approved
+BL054,Sick Leave,2025-07-23,2025-07-23,1,Approved
+BL057,Casual Leave,2025-07-23,2025-07-24,2,Rejected
+BL006,Loss of Pay,2025-07-28,2025-07-28,1,Rejected
+BL069,Casual Leave,2025-08-06,2025-08-06,1,Approved
+BL033,Loss of Pay,2025-08-08,2025-08-08,1,Approved
+BL024,Sick Leave,2025-08-19,2025-08-20,2,Approved
+BL052,Loss of Pay,2025-08-25,2025-08-26,2,Rejected
+BL075,Loss of Pay,2025-09-15,2025-09-16,2,Approved
+BL082,Casual Leave,2025-09-24,2025-09-24,1,Approved
+BL061,Earned Leave,2025-10-06,2025-10-08,3,Approved
+BL081,Loss of Pay,2025-10-13,2025-10-13,1,Approved
+BL050,Casual Leave,2025-10-27,2025-10-27,1,Requested
