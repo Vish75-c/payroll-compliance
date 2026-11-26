@@ -43,7 +43,9 @@ def policies(request, company_id):
                                                        note=d.get("note", ""), user=request.user)
         return Response({"version": P.policy(version, set()), "warnings": warnings}, status=201)
     used = policy_service.used_version_ids(company)
-    qs = PolicyVersion.objects.filter(Q(company__isnull=True) | Q(company=company)).order_by("key", "jurisdiction", "effective_from", "id")
+    # The pay cycle is set per pay group (its own card); the setting it replaced is kept only for months stored before.
+    qs = (PolicyVersion.objects.filter(Q(company__isnull=True) | Q(company=company)).exclude(key="pay_cycle")
+          .order_by("key", "jurisdiction", "effective_from", "id"))
     groups: dict[tuple, dict] = {}
     for v in qs:
         k = (v.scope, v.key, v.jurisdiction)
@@ -54,6 +56,8 @@ def policies(request, company_id):
         })
         g["versions"].append(P.policy(v, used))
     for key in engine_policies.COMPANY_KEYS:
+        if key == "pay_cycle":
+            continue
         if (PolicyVersion.SCOPE_COMPANY, key, "") not in groups:
             groups[(PolicyVersion.SCOPE_COMPANY, key, "")] = {
                 "scope": "company", "key": key, "jurisdiction": "", "title": engine_policies.COMPANY_KEYS[key], "versions": [],

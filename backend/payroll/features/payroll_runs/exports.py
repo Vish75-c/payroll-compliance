@@ -18,7 +18,7 @@ from django.conf import settings
 from payroll_engine import policies as engine_policies
 from payroll_engine.engine import component_label, order_components
 from payroll_engine.money import d, to_str
-from payroll_engine.periods import Period
+from payroll_engine.periods import Period, parse_date, pay_date
 
 from ..dues import dues
 
@@ -27,8 +27,8 @@ class FilesDoNotMatch(Exception):
     """The files read back do not total to the register. A code or data bug: retrying will not help."""
 
 
-def _due(versions: list[dict], key: str, period: Period, jurisdiction: str) -> str:
-    when = dues._due_day(versions, key, period, jurisdiction)
+def _due(versions: list[dict], key: str, period: Period, jurisdiction: str, pay_day: int | None = None) -> str:
+    when = dues._due_day(versions, key, period, jurisdiction, pay_day)
     return when.isoformat() if when else ""
 
 
@@ -36,8 +36,10 @@ def register_columns(result: dict) -> list[tuple[str, str]]:
     comps = order_components({k.split(".", 1)[1] for e in result["employees"] for k in e["amounts"] if k.startswith("earned.")})
     one_time = sorted({k for e in result["employees"] for k in e["amounts"] if k.startswith("one_time.")})
     deductions = sorted({k for e in result["employees"] for k in e["amounts"] if k.startswith("deduction.")})
-    cols = [("employee_code", "Employee ID"), ("name", "Name"), ("work_state", "State"),
-            ("days_in_month", "Days in month"), ("unpaid_days", "Unpaid days")]
+    cols = [("employee_code", "Employee ID"), ("name", "Name"), ("work_state", "State")]
+    if any(e.get("pay_window") for e in result["employees"]):
+        cols += [("pay_group", "Pay group"), ("pay_from", "Paid from"), ("pay_to", "Paid to"), ("pay_date", "Pay date")]
+    cols += [("days_in_month", "Days in month"), ("unpaid_days", "Unpaid days")]
     cols += [(f"rate.{c}", f"{component_label(c)} (monthly)") for c in comps]
     cols += [("fixed_gross", "Monthly salary")]
     cols += [(f"earned.{c}", f"{component_label(c)} (earned)") for c in comps]
@@ -64,10 +66,27 @@ def register_rows(result: dict) -> tuple[list[str], list[list[str]]]:
                 row.append(e["name"])
             elif key == "work_state":
                 row.append(e.get("work_state", ""))
+            elif key in ("pay_group", "pay_from", "pay_to", "pay_date"):
+                row.append(_pay_field(e.get("pay_window") or {}, key))
             else:
                 row.append(e["amounts"].get(key, "0"))
         rows.append(row)
     return [label for _, label in cols], rows
+
+
+def _pay_field(pw: dict, key: str) -> str:
+    if key == "pay_group":
+        return pw.get("group_name", "")
+    if key == "pay_from":
+        return pw.get("salary_from", "")
+    if key == "pay_to":
+        return pw.get("salary_to", "")
+    return pay_date(parse_date(pw["salary_to"]), int(pw["pay_day"])).isoformat() if pw.get("pay_day") else ""
+
+
+def _paid_apart(result: dict) -> list[dict]:
+    groups = result.get("totals_by_group") or []
+    return groups if len(groups) > 1 else []
 
 
 def _csv(headers: list[str], rows: list[list]) -> str:
@@ -84,7 +103,7 @@ def build_files(result: dict, input_data: dict) -> dict[str, str]:
     pf_rule = engine_policies.resolve(versions, "pf", period, "IN")
     pf_due = _due(versions, "pf", period, "IN")
     esi_due = _due(versions, "esi", period, "IN")
-    tds_due = _due(versions, "income_tax", period, "IN")
+    tds_due = _due(versions, "income_tax", period, "IN", (input_data.get("company") or {}).get("pay_day"))
     eps_ceiling = d((pf_rule.payload if pf_rule else {}).get("eps_wage_ceiling", "15000"))
 
     files = {}
@@ -108,9 +127,11 @@ def build_files(result: dict, input_data: dict) -> dict[str, str]:
         state = e.get("work_state", "")
         pt_rows.append([e["code"], e["name"], state, a.get("pt_basis", "0"), a.get("pt", "0"),
                         _due(versions, "professional_tax", period, f"IN-{state}") if state else ""])
+        deducted = dues._deducted_in(e)  # each person's TDS is due after the month they are paid in
+        own_due = dues.tds_due_date(versions, period, Period.parse(deducted)).isoformat() if deducted else tds_due
         tds_rows.append([e["code"], e["name"], a.get("gross", "0"), a.get("tds_projected_income", "0"),
                          a.get("tds_taxable_income", "0"), a.get("tds_annual_tax", "0"), a.get("tds_paid_before", "0"),
-                         a.get("tds", "0"), tds_due])
+                         a.get("tds", "0"), own_due])
 
     files["pf.csv"] = _csv(["Employee ID", "Name", "PF wages", "EPF wages (base used)", "EPS wages", "Employee share",
                             "Employer EPS", "Employer EPF", "Employer share", "Total to pay", "Due date"], pf_rows)
@@ -119,6 +140,13 @@ def build_files(result: dict, input_data: dict) -> dict[str, str]:
     files["professional_tax.csv"] = _csv(["Employee ID", "Name", "State", "Pay used for PT", "Professional tax", "Due date"], pt_rows)
     files["tds.csv"] = _csv(["Employee ID", "Name", "Gross pay this month", "Estimated pay for the year", "Taxable income",
                              "Tax for the year", "TDS deducted earlier this year", "TDS this month", "Due date"], tds_rows)
+    # Net pay per pay group, for the bank, when there is more than one: each group is paid on its own day.
+    for g in _paid_apart(result):
+        people = [e for e in result["employees"] if (e.get("pay_window") or {}).get("group", "") == g["group"]]
+        files[f"net_pay_{g['group'] or 'all'}.csv"] = _csv(
+            ["Employee ID", "Name", "Pay group", "Paid from", "Paid to", "Net pay", "Pay date"],
+            [[e["code"], e["name"], g["name"], e["pay_window"]["salary_from"], e["pay_window"]["salary_to"],
+              e["amounts"].get("net_pay", "0"), g["pay_date"]] for e in people])
     return files
 
 
@@ -159,12 +187,20 @@ def reconcile(files: dict[str, str], result: dict) -> list[dict]:
                    ("pf", ""): _column_total(files["pf.csv"], "Total to pay"),
                    ("esi", ""): _column_total(files["esi.csv"], "Total to pay")}
     file_totals.update({("pt", state): total for state, total in by_state.items()})
-    owed = {(x["kind"], x["jurisdiction"]): x["total"] for x in dues.amounts_of(result)}
+    owed: dict[tuple[str, str], Decimal] = {}
+    for x in dues.amounts_of(result):  # TDS split by the month it is deducted in is one file
+        key = ("tds", "") if x["kind"] == "tds" else (x["kind"], x["jurisdiction"])
+        owed[key] = owed.get(key, Decimal(0)) + x["total"]
     for key in sorted(set(file_totals) | set(owed)):
         in_file, due_total = file_totals.get(key, Decimal(0)), owed.get(key, Decimal(0))
         name = {"tds": "tds.csv", "pf": "pf.csv", "esi": "esi.csv", "pt": "professional_tax.csv"}[key[0]]
         checks.append({"check": f"Government due: {dues.LABELS[key[0]]}" + (f" ({key[1]})" if key[1] else ""), "file": name,
                        "file_total": to_str(in_file), "register_total": to_str(due_total), "matches": in_file == due_total})
+    for g in _paid_apart(result):
+        name = f"net_pay_{g['group'] or 'all'}.csv"
+        in_file = _column_total(files[name], "Net pay")
+        checks.append({"check": f"Net pay of {g['name']} ({g['people']} people)", "file": name, "file_total": to_str(in_file),
+                       "register_total": g["totals"].get("net_pay", "0"), "matches": in_file == d(g["totals"].get("net_pay", "0"))})
     net_register = _column_total(register, "Net pay")
     checks.append({"check": "Net pay in register equals the calculation", "file": "register.csv", "file_total": to_str(net_register),
                    "register_total": result["totals"].get("net_pay", "0"), "matches": net_register == d(result["totals"].get("net_pay"))})

@@ -40,6 +40,10 @@ TARGETS: list[Target] = [
     Target("employee.pf_applicable", "PF member (yes/no)", "employee", "bool", ("pf applicable", "pf member", "epf applicable", "pf")),
     Target("employee.esi_applicable", "ESI covered (yes/no)", "employee", "bool", ("esi applicable", "esi covered", "esi")),
     Target("employee.department", "Department (shown only)", "employee", "text", ("department", "dept")),
+    Target("employee.pay_group", "Pay group", "employee", "text",
+           ("pay group", "payroll group", "pay cycle group", "payroll cycle", "salary group", "pay group name"),
+           "The pay group the person is paid with (set up on Rules & settings → Pay groups). Optional: groups can also "
+           "take people by department or work state."),
     Target("employee.designation", "Designation (shown only)", "employee", "text",
            ("designation", "job title", "title", "role", "job position", "position")),
 
@@ -86,6 +90,14 @@ TARGETS: list[Target] = [
            ("days", "no of days", "number of days", "leave days", "total days", "requested days", "duration", "no. of days", "requested days")),
     Target("leave.type", "Leave type", "leave", "text", ("leave type", "type", "category", "leave category", "leave name")),
     Target("leave.status", "Leave status", "leave", "text", ("status", "approval status", "leave status")),
+    # Half days, the way Horilla records them: whether the first and the last day of a leave are full days or halves.
+    Target("leave.start_breakdown", "First day: full or half", "leave", "text",
+           ("start date breakdown", "start breakdown", "start session", "from session", "first day session", "start day type"),
+           "Full Day, First Half or Second Half. A half counts as 0.5 of a day."),
+    Target("leave.end_breakdown", "Last day: full or half", "leave", "text",
+           ("end date breakdown", "end breakdown", "end session", "to session", "last day session", "end day type"),
+           "Full Day, First Half or Second Half. A half counts as 0.5 of a day."),
+    Target("leave.half_day", "Half day (yes/no)", "leave", "bool", ("half day", "is half day", "half-day", "halfday")),
     Target("leave.unpaid", "Unpaid leave (yes/no)", "leave", "bool", ("unpaid", "is unpaid", "loss of pay", "is lop")),
 
     # Daily attendance: one row per person per day they checked in. Used only to suggest unpaid absences.

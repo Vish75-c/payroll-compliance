@@ -98,6 +98,43 @@ class Period:
         return self.fy_first if self.fy_index <= 6 else self.fy_first.add(6)
 
 
+@dataclass(frozen=True)
+class Window:
+    """The dates a pay month covers when the company's cycle is not the calendar month, e.g. 26 Oct to 25 Nov."""
+    start: date
+    end: date
+
+    @property
+    def days(self) -> int:
+        return (self.end - self.start).days + 1
+
+    @property
+    def label(self) -> str:
+        return f"{self.start.day} {self.start:%b} to {self.end.day} {self.end:%b %Y}"
+
+
+def cycle_window(period: Period, start_day: int) -> Window:
+    """The cycle that ends in ``period``: from ``start_day`` of the month before to the day before ``start_day``.
+
+    Day 1 is the calendar month. With day 26, November is 26 Oct to 25 Nov.
+    """
+    if start_day <= 1:
+        return Window(period.start, period.end)
+    prev = period.prev()
+    return Window(date(prev.year, prev.month, min(start_day, prev.days)),
+                  date(period.year, period.month, min(start_day, period.days)) - timedelta(days=1))
+
+
+def pay_date(cycle_end: date, pay_day: int) -> date:
+    """The first ``pay_day`` on or after the last day of the pay cycle: 30 Nov with pay day 7 is 7 Dec."""
+    month = Period.of(cycle_end)
+    target = date(month.year, month.month, min(pay_day, month.days))
+    if target >= cycle_end:
+        return target
+    month = month.next()
+    return date(month.year, month.month, min(pay_day, month.days))
+
+
 def parse_date(value) -> date | None:
     if value in (None, ""):
         return None
@@ -113,7 +150,7 @@ def daterange(start: date, end: date):
         day += timedelta(days=1)
 
 
-def overlap_days(start: date, end: date, period: Period) -> int:
+def overlap_days(start: date, end: date, period: "Period | Window") -> int:
     lo = max(start, period.start)
     hi = min(end, period.end)
     return (hi - lo).days + 1 if hi >= lo else 0

@@ -28,12 +28,14 @@ def compute_tds(emp, period, versions, gross, non_taxable, one_time_taxable):
     future_rules = {}
     p = period.next()
     while p <= last:
-        # Month-specific settings (including draft what-ifs) apply only to the month they were set for.
+        # Month-specific settings (including draft what-ifs) apply only to the month they were set for,
+        # and this month's pay window (its pay group dates) does not carry into later months.
         future_versions = [
             v for v in versions
             if v.get("scope") not in (pol.MONTH, pol.OVERRIDE) or parse_date(v["effective_from"]) == p.start
         ]
-        earnings = compute_earnings(emp, p, future_versions, ZERO)
+        future_emp = {k: v for k, v in emp.items() if k != "pay_window"}
+        earnings = compute_earnings(future_emp, p, future_versions, ZERO)
         future_pay.append(earnings.regular_gross)
         rounding_ref = earnings.rounding_ref
         future_rules[rounding_ref.key, rounding_ref.version_id] = rounding_ref

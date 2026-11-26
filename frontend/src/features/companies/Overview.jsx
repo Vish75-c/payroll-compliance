@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../../shared/api.js";
+import { PageHelp } from "../../shared/Help.jsx";
 import { go } from "../../shared/routing.js";
 import { Banner, Bars, Field, Loading, StatusChip, day, inr, signed, stateName, useAction, useLoad, when } from "../../shared/ui.jsx";
 import { DueStatus } from "../dues/Dues.jsx";
@@ -158,7 +159,6 @@ function MonthView({ data, canOpen, opening, setOpening, openForm }) {
       ) : (
         <div className="card mv-empty">
           <b>{selected === data.next_period ? `${label} is the next month to run.` : `${label} has not been run.`}</b>
-          <span className="muted">{selected === data.next_period ? "Open it to read the HR data and work out the month." : "Pick a month with a coloured dot to see its payout."}</span>
         </div>
       )}
     </>
@@ -243,7 +243,7 @@ export default function Overview({ company, me }) {
         <div className="dash-rings" aria-hidden="true"><i /><i /><i /><b /></div>
         <div>
           <p className="dash-hello">{greeting()}{firstName ? `, ${firstName}` : ""}</p>
-          <h1>{data.company.name}</h1>
+          <div className="title-row"><h1>{data.company.name}</h1><PageHelp topic="overview" /></div>
         </div>
         {next && <button className="primary lg dash-cta" onClick={next.run}>{next.label} <span aria-hidden="true">→</span></button>}
       </section>

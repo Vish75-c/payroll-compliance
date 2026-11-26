@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { api } from "../../shared/api.js";
+import { PageHelp } from "../../shared/Help.jsx";
 import { AIChip, DataView, Json, Loading, StatusChip, useLoad, when } from "../../shared/ui.jsx";
 
 export default function AILog({ company }) {
@@ -8,7 +9,7 @@ export default function AILog({ company }) {
   if (!data) return <Loading error={error} />;
   return (
     <div>
-      <div className="topbar"><div><h1>AI log</h1></div></div>
+      <div className="topbar"><div className="title-row"><h1>AI log</h1><PageHelp topic="ai" /></div></div>
       <div className="card">
         <h2>Answers ({data.items.length})</h2>
         {data.items.length === 0 ? <div className="empty">No AI answers yet.</div> : (

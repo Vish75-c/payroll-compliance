@@ -26,7 +26,8 @@ from ..companies.models import Company
 from ..hr_data.models import DataSnapshot
 from ..dues import dues
 from ..rules.policies import versions_for
-from . import exports
+from ..pay_groups import service as groups_service
+from . import cycle, exports
 from .events import record
 from .inputs import build_run_input, default_day_count
 from .models import ChangeRequest, PayrollRun
@@ -78,7 +79,7 @@ def _stored_day_count(company: Company, p: Period, count: int | None) -> int | N
     if count is None:
         return None
     versions = [v for v in versions_for(company) if Period.of(date.fromisoformat(v["effective_from"][:10])) <= p]
-    return None if count == default_day_count(versions, p) else count
+    return None if count == default_day_count(versions, p, cycle.default_windows(company, p)[0].days) else count
 
 
 @transaction.atomic
@@ -108,7 +109,8 @@ def default_for(company: Company, period: str) -> dict:
         p = Period.parse(period)
     except ValueError as exc:
         raise RuleViolation(str(exc)) from exc
-    return effective_day_count(PayrollRun(company=company, period=str(p)))
+    return {**effective_day_count(PayrollRun(company=company, period=str(p))),
+            "cycle": cycle.describe(company, p, groups_service.latest_employees(company))}
 
 
 def effective_day_count(run: PayrollRun) -> dict:
@@ -117,8 +119,14 @@ def effective_day_count(run: PayrollRun) -> dict:
         return {"days": run.day_count, "source": f"set for {p.label}", "set_for_month": True}
     versions = [v for v in versions_for(run.company) if Period.of(date.fromisoformat(v["effective_from"][:10])) <= p]
     lop = engine_policies.resolve_company(versions, "lop", p).get("divisor", "days_in_month")
-    source = f"days in {p.label.split()[0]}" if lop == "days_in_month" else "company setting"
-    return {"days": default_day_count(versions, p), "source": source, "set_for_month": False}
+    window = cycle.default_windows(run.company, p)[0]
+    if lop != "days_in_month":
+        source = "company setting"
+    elif (window.start, window.end) == (p.start, p.end):
+        source = f"days in {p.label.split()[0]}"
+    else:
+        source = f"days in the pay cycle, {window.label}"
+    return {"days": default_day_count(versions, p, window.days), "source": source, "set_for_month": False}
 
 
 @transaction.atomic

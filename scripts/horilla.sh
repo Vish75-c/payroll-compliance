@@ -9,6 +9,9 @@
 #   BRICKLINE_KEEP=BL001,...,BL010 ./scripts/horilla.sh stage october
 #                                     keep only those people (the others are removed from Horilla)
 #   ./scripts/horilla.sh stop
+#   ./scripts/horilla.sh prosperric setup|start|stop
+#                                     a second Horilla on http://localhost:8001, on its own database, holding only
+#                                     prosperric acid (the Kestrel sample people and HR's December 2026)
 # Tested with Horilla master of Nov 2026 on Python 3.12 (SQLite, no Redis).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -56,5 +59,33 @@ case "${1:-}" in
       rm -f "$ROOT/var/pids/horilla.pid"
     fi
     ;;
-  *) echo "usage: $0 setup | start | stage june|july|august|september|october | stop"; exit 1 ;;
+  prosperric)
+    # Same Horilla install, its own database: the company's lists hold only its own people.
+    export DB_NAME="$H/prosperric.sqlite3" PROSPERRIC_SEED="$ROOT/data/kestrel/seed.json" \
+           CSRF_TRUSTED_ORIGINS=http://localhost:8001,http://127.0.0.1:8001,http://host.docker.internal:8001
+    PPID_FILE="$ROOT/var/pids/horilla-prosperric.pid"
+    case "${2:-}" in
+      setup)
+        [ -x "$H/venv/bin/python" ] || { echo "Run ./scripts/horilla.sh setup first (installs Horilla)"; exit 1; }
+        manage migrate --noinput
+        DJANGO_SUPERUSER_PASSWORD=admin manage createsuperuser --noinput --username admin --email admin@prosperric.example 2>/dev/null || true
+        manage shell < "$ROOT/integrations/horilla/seed_prosperric.py"
+        echo "prosperric acid's Horilla is ready. Start it with: ./scripts/horilla.sh prosperric start   (login admin / admin)"
+        ;;
+      start)
+        mkdir -p "$ROOT/var/logs" "$ROOT/var/pids"
+        (cd "$H/src" && exec nohup "$H/venv/bin/python" manage.py runserver "$BIND:8001" --noreload >> "$ROOT/var/logs/horilla-prosperric.log" 2>&1) &
+        echo $! > "$PPID_FILE"
+        echo "Horilla for prosperric acid starting on http://localhost:8001 (admin / admin); log: var/logs/horilla-prosperric.log"
+        ;;
+      stop)
+        if [ -f "$PPID_FILE" ]; then
+          kill "$(cat "$PPID_FILE")" 2>/dev/null && echo "stopped prosperric acid's Horilla" || true
+          rm -f "$PPID_FILE"
+        fi
+        ;;
+      *) echo "usage: $0 prosperric setup | start | stop"; exit 1 ;;
+    esac
+    ;;
+  *) echo "usage: $0 setup | start | stage june|july|august|september|october | stop | prosperric setup|start|stop"; exit 1 ;;
 esac

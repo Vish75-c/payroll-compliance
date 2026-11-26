@@ -190,9 +190,9 @@
         "Employee": "employee.name",
         "Leave Type": "leave.type",
         "Start Date": "leave.start_date",
-        "Start Date Breakdown": "ignore",
+        "Start Date Breakdown": "leave.start_breakdown",
         "End Date": "leave.end_date",
-        "End Date Breakdown": "ignore",
+        "End Date Breakdown": "leave.end_breakdown",
         "Requested Days": "leave.days",
         "Description": "ignore",
         "Status": "leave.status"

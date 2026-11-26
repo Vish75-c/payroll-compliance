@@ -39,8 +39,15 @@ def create_from_job(job: IngestionJob, user) -> DataSnapshot:
         structure,
         first_seen=today,
         seen_before=seen_before,
+        work_calendar=engine_policies.resolve_company(versions_for(job.company), "work_calendar", Period.of(today)).payload,
     )
     checks = list((job.stats or {}).get("checks", [])) + checks
+    from ..pay_groups import service as pay_groups
+    unknown = pay_groups.unknown_group_values(data["employees"], pay_groups.groups_for(job.company, Period.of(today)))
+    if unknown:
+        checks.append({"level": "warning", "code": "unknown_pay_group",
+                       "message": f"Pay group {', '.join(repr(u) for u in unknown)} in the HR data is not set up on Rules & settings "
+                                  "→ Pay groups; those people are put in a group by the group rules (or the default group)."})
     data["source"] = {"kind": job.kind, "system": job.source_system, "job_id": job.pk, "read_at": (job.finished_at or timezone.now()).isoformat()}
     content = content_of(data)
     snapshot = DataSnapshot.objects.create(
@@ -83,6 +90,9 @@ def approve(snapshot: DataSnapshot, user, note: str = "") -> DataSnapshot:
     snapshot.review_note = note
     snapshot.save()
     refresh_employees(snapshot)
+    # People's pay groups follow the reviewed data (a "Pay group" column, or the groups' department/state rules).
+    from ..pay_groups import service as pay_groups  # here: pay groups read the months, which read this module's models
+    pay_groups.refresh_from_data(snapshot.company, snapshot.data.get("employees", []))
     return snapshot
 
 

@@ -8,5 +8,6 @@ urlpatterns = [
     path("", include("payroll.features.hr_data.urls")),
     path("", include("payroll.features.payroll_runs.urls")),
     path("", include("payroll.features.rules.urls")),
+    path("", include("payroll.features.pay_groups.urls")),
     path("", include("payroll.features.ai.urls")),
 ]

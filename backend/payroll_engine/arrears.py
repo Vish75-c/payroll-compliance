@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from . import policies as pol
 from .components import order_components
-from .earnings import compute_earnings, contracted_rate
+from .earnings import compute_earnings, contracted_rate, pay_dates_of
 from .money import ZERO, d, inr, round_amount, to_str
 from .periods import Period, parse_date
 from .pf import compute_pf
@@ -51,7 +51,12 @@ def compute_arrears(emp: dict, period: Period, versions: list[dict]) -> tuple[li
         legacy_pf_applicable = bool(paid_pf_emp or paid_pf_er) or emp.get("pf_applicable", True)
         past_emp["pf_applicable"] = basis.get("pf_applicable", legacy_pf_applicable)
         past_versions = basis["policy_versions"]
-        rate, _, backfilled = contracted_rate(emp.get("compensation") or [], past, parse_date(past_emp.get("date_of_joining")))
+        # The past month is worked out on its own dates (its pay group then), not this month's.
+        past_emp.pop("pay_window", None)
+        if basis.get("pay_window"):
+            past_emp["pay_window"] = basis["pay_window"]
+        rate, _, backfilled = contracted_rate(emp.get("compensation") or [], pay_dates_of(past_emp, past, past_versions).salary,
+                                              parse_date(past_emp.get("date_of_joining")))
         if not rate or backfilled:
             # The salary for that month is not in the HR data, so it cannot be recalculated.
             # Paying "arrears" against a guessed salary would be wrong: skip and say so.

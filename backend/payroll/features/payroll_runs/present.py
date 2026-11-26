@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from payroll_engine.diff import compare_results
-from payroll_engine.periods import Period
+from payroll_engine.periods import Period, Window, parse_date
 
 from payroll.shared.permissions import is_in_group
 from payroll.shared.present import _dt, _user
@@ -10,6 +10,7 @@ from ..ai.present import ai
 from ..companies.present import company
 from ..dues.present import due
 from ..hr_data.present import snapshot_summary
+from . import cycle
 from . import runs as run_service
 from .inputs import _in_period
 from .models import ChangeRequest, PayrollRun
@@ -35,9 +36,28 @@ def change(c: ChangeRequest):
 
 
 def _month_people(r: PayrollRun) -> list[dict]:
+    employees = r.snapshot.data.get("employees", []) if r.snapshot_id else []
+    windows = cycle.month_windows(r.company, r.period_obj, employees)
+    return [{"code": e["code"], "name": e.get("name", e["code"]), "work_state": e.get("work_state", ""),
+             "pay_group": windows[e["code"]].group_name}
+            for e in employees if _in_period(e, windows[e["code"]].salary)]
+
+
+def _cycle(r: PayrollRun) -> dict | None:
+    """Each pay group's dates in this month. A month already calculated shows the dates it was calculated with."""
+    if not r.snapshot_id or r.run_type != PayrollRun.TYPE_REGULAR:
+        return None
     period = r.period_obj
-    return [{"code": e["code"], "name": e.get("name", e["code"]), "work_state": e.get("work_state", "")}
-            for e in (r.snapshot.data.get("employees", []) if r.snapshot_id else []) if _in_period(e, period)]
+    if r.is_locked and r.result and r.result.get("totals_by_group"):
+        groups = [{"code": g["group"], "name": g["name"], "default": g["default"], "people": g["people"],
+                   "transition": g["transition"], "pay_date": g["pay_date"],
+                   "salary": cycle._w(Window(parse_date(g["salary_from"]), parse_date(g["salary_to"])), period)}
+                  for g in r.result["totals_by_group"]]
+        people = [e.get("pay_window") or {} for e in r.result["employees"]]
+        first = next((pw for pw in people if pw.get("default")), people[0] if people else {})
+        attendance = Window(parse_date(first.get("attendance_from") or str(period.start)), parse_date(first.get("attendance_to") or str(period.end)))
+        return {"salary": groups[0]["salary"], "attendance": cycle._w(attendance, period), "groups": groups}
+    return cycle.describe(r.company, period, r.snapshot.data.get("employees", []))
 
 
 def run_detail(r: PayrollRun, user, with_workflow: bool = True):
@@ -49,6 +69,8 @@ def run_detail(r: PayrollRun, user, with_workflow: bool = True):
     out.update({
         "company": company(r.company),
         "period_label": Period.parse(r.period).label,
+        # The dates the month pays salary for and counts unpaid days over (the company's pay cycle).
+        "cycle": _cycle(r),
         "knowledge_date": r.knowledge_date.isoformat(),
         "note": r.note,
         "snapshot": snapshot_summary(r.snapshot),

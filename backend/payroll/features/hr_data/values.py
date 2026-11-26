@@ -170,6 +170,15 @@ def guess_unpaid(leave_type: str) -> bool:
     return any(re.search(rf"\b{re.escape(k)}\b", text) for k in UNPAID_KEYWORDS)
 
 
+HALF_DAY = re.compile(r"\b(first half|second half|1st half|2nd half|half day|half|hd|0\.5|fh|sh|session [12])\b")
+
+
+def guess_half(value: str) -> bool:
+    """Does a day's breakdown mean a half day? Horilla writes 'Full Day', 'First Half' or 'Second Half'."""
+    text = str(value).lower().replace("_", " ")
+    return bool(HALF_DAY.search(text)) and "full" not in text
+
+
 def guess_approved(status: str) -> bool:
     text = status.lower()
     if any(k in text for k in NOT_APPROVED_KEYWORDS):

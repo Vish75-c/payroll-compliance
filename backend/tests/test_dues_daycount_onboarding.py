@@ -252,3 +252,23 @@ def test_onboarding_says_which_professional_tax_applies_to_the_company_state():
     assert professional_tax_for("Delhi")["status"] == "not_charged"
     assert professional_tax_for("Tamil Nadu")["status"] == "not_supported"
     assert professional_tax_for("KA")["status"] == "slabs" and "verify" not in professional_tax_for("KA")
+
+
+def test_unpaid_absence_days_must_match_its_dates(demo):
+    """From-To decides the count: all the days in between, or half a day less. 1 day over 11-20 Jul is refused."""
+    company, _ = demo
+    maker = login("maker")
+    rid = maker.post(f"/api/companies/{company.pk}/runs", {"period": "2025-07"}, content_type=JSON).json()["id"]
+    maker.post(f"/api/runs/{rid}/review-data", content_type=JSON)
+
+    def add(days, start, end):
+        return maker.post(f"/api/runs/{rid}/add-by-hand", {"kind": "extra_unpaid_days", "employee_code": "BL002", "days": days,
+                                                           "from": start, "to": end, "reason": "Absent without approval"},
+                          content_type=JSON)
+
+    r = add("1", "2025-07-11", "2025-07-20")
+    assert r.status_code == 400 and "is 10 days" in r.json()["detail"]
+    assert add("11", "2025-07-11", "2025-07-20").status_code == 400   # more days than the dates hold
+    assert add("3", "2025-07-01", "2025-07-03").status_code == 201
+    assert add("1.5", "2025-07-07", "2025-07-08").status_code == 201  # a half day at one end
+    assert add("0.5", "2025-07-09", "2025-07-09").status_code == 201

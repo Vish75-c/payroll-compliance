@@ -10,21 +10,22 @@ from datetime import date
 
 from payroll_engine import policies as engine_policies
 from payroll_engine.money import d, to_str
-from payroll_engine.periods import Period, parse_date
+from payroll_engine.periods import Period, Window, parse_date
 
 from ..hr_data.normalize import unpaid_days_for
 from ..onboarding.models import OpeningBalance
 from ..rules.policies import versions_for
 from .change_kinds import EmployeeMonth, kind_of
+from .cycle import month_windows
 from .models import ChangeRequest, PayrollRun
 
 
-def _in_period(emp: dict, period: Period) -> bool:
+def _in_period(emp: dict, window: Window) -> bool:
     doj = parse_date(emp.get("date_of_joining"))
     doe = parse_date(emp.get("date_of_exit"))
-    if doj and doj > period.end:
+    if doj and doj > window.end:
         return False
-    if doe and doe < period.start:
+    if doe and doe < window.start:
         return False
     return True
 
@@ -65,10 +66,11 @@ def override_versions(run: PayrollRun, versions: list[dict]) -> list[dict]:
     return out
 
 
-def default_day_count(versions: list[dict], period: Period) -> int:
-    """What one day's pay is divided by under the company setting, for this month."""
+def default_day_count(versions: list[dict], period: Period, cycle_days: int) -> int:
+    """What one day's pay is divided by under the company setting, for this month. ``cycle_days``: the days in the
+    default pay group's cycle (each group's own cycle is used for its people when the setting is "days in the month")."""
     divisor = engine_policies.resolve_company(versions, "lop", period).get("divisor", "days_in_month")
-    return period.days if divisor == "days_in_month" else int(d(divisor))
+    return cycle_days if divisor == "days_in_month" else int(d(divisor))
 
 
 def day_count_versions(run: PayrollRun, versions: list[dict]) -> list[dict]:
@@ -133,6 +135,8 @@ def build_run_input(run: PayrollRun) -> dict:
             versions.append(version)
     versions += day_count_versions(run, versions)
     versions += override_versions(run, versions)
+    # Each person's dates: their pay group's cycle, or a transition period when it changed.
+    windows = month_windows(company, period, data["employees"])
     arrears_policy = engine_policies.resolve_company(versions, "arrears_policy", period)
     lookback = int(arrears_policy.get("lookback_months", 12))
 
@@ -147,12 +151,13 @@ def build_run_input(run: PayrollRun) -> dict:
 
     employees = []
     for emp in data["employees"]:
-        if not _in_period(emp, period):
+        window = windows[emp["code"]]
+        if not _in_period(emp, window.salary):
             continue
         code = emp["code"]
         comp_rows = [r for r in data["compensation"] if r["employee_code"] == code]
         compensation = _known_compensation(comp_rows, run.knowledge_date)
-        month = EmployeeMonth(compensation=compensation, unpaid=unpaid_days_for(data, code, period))
+        month = EmployeeMonth(compensation=compensation, unpaid=unpaid_days_for(data, code, period, window.attendance))
         applied = []
         for ch in carried:
             for item in ch.proposal.get("items", []):
@@ -166,7 +171,7 @@ def build_run_input(run: PayrollRun) -> dict:
                 applied.append(f"change:{ch.pk}")
         compensation, one_time, late_unpaid = month.compensation, month.one_time, month.late_unpaid
         # unpaid absences entered by hand come on top of the HR data
-        unpaid = min(month.unpaid + month.extra_unpaid, d(period.days))
+        unpaid = min(month.unpaid + month.extra_unpaid, d(window.salary.days))
 
         ytd_months = []
         covered_esi_months = []
@@ -215,6 +220,7 @@ def build_run_input(run: PayrollRun) -> dict:
                 "date_of_joining": past_input.get("date_of_joining", emp.get("date_of_joining")),
                 "date_of_exit": past_input.get("date_of_exit", emp.get("date_of_exit")),
                 "pf_applicable": past_input.get("pf_applicable", emp.get("pf_applicable", True)),
+                **({"pay_window": past_input["pay_window"]} if past_input.get("pay_window") else {}),
                 "paid": {
                     "earned": {k: to_str(v) for k, v in earned.items()},
                     "regular_gross": to_str(regular_gross),
@@ -236,6 +242,7 @@ def build_run_input(run: PayrollRun) -> dict:
             "covered_esi_months": covered_esi_months,
             "compensation": sorted(compensation, key=lambda r: r.get("effective_from") or ""),
             "unpaid_days": to_str(unpaid),
+            "pay_window": window.as_input(),
             "one_time": one_time,
             "ytd": {"opening_gross": to_str(openings[code].gross) if code in openings else "0",
                     "opening_tds": to_str(openings[code].tds) if code in openings else "0", "months": ytd_months},
@@ -245,7 +252,8 @@ def build_run_input(run: PayrollRun) -> dict:
 
     return {
         "period": str(period),
-        "company": {"id": company.pk, "code": company.code, "name": company.name, "state": company.state},
+        "company": {"id": company.pk, "code": company.code, "name": company.name, "state": company.state,
+                    **({"pay_day": company.pay_day} if company.pay_day else {})},
         "policy_versions": versions,
         "employees": employees,
         "knowledge_date": run.knowledge_date.isoformat(),

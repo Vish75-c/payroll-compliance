@@ -28,6 +28,20 @@ export function monthLabel(period) {
   return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 }
 
+// The dates a month covers when the company's pay cycle is not the calendar month; "" when it is.
+export function cycleHint(cycle) {
+  if (!cycle) return "";
+  const groups = cycle.groups || [];
+  const moving = groups.reduce((n, g) => n + (g.transition || 0), 0);
+  const extra = moving ? ` · ${moving} ${moving === 1 ? "person" : "people"} in a transition period (new pay cycle)` : "";
+  if (groups.length > 1) {
+    return groups.map((g) => `${g.name}: ${g.salary.label}${g.pay_date ? `, paid ${day(g.pay_date)}` : ""}`).join(" · ") + extra;
+  }
+  if (!cycle.salary.calendar) return `Pay cycle: ${cycle.salary.label} (${cycle.salary.days} days)${extra}`;
+  if (!cycle.attendance.calendar) return `Unpaid days counted ${cycle.attendance.label}; salary for the calendar month${extra}`;
+  return extra.replace(/^ · /, "");
+}
+
 // ---------------------------------------------------------------- hooks
 export function useLoad(loader, deps) {
   const [state, setState] = useState({ data: null, error: null, loading: true });
@@ -178,13 +192,23 @@ export function Loading({ error }) {
   return <div className="empty"><Spinner /> Loading…</div>;
 }
 
-export function Field({ label, children, hint }) {
+// A form field. ``hint`` (how to fill it) sits behind an ⓘ by the label; ``note`` (feedback on what was typed, e.g.
+// the code it makes or why it is not accepted) stays under the box.
+export function Field({ label, children, hint, note }) {
   return (
     <label className="field">
-      {label}
+      <span className="field-label">{label}{hint && <InfoTip text={hint} />}</span>
       {children}
-      {hint && <span className="muted small" style={{ fontWeight: 400 }}>{hint}</span>}
+      {note && <span className="muted small" style={{ fontWeight: 400 }}>{note}</span>}
     </label>
+  );
+}
+
+export function InfoTip({ text }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className={`info-tip${open ? " open" : ""}`} tabIndex={0} role="note" aria-label={text} data-tip={text}
+      onClick={(e) => { e.preventDefault(); setOpen(!open); }} onBlur={() => setOpen(false)}>ⓘ</span>
   );
 }
 

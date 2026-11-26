@@ -42,6 +42,15 @@ def first_affected_period(effective_from: date) -> Period:
     return p
 
 
+def _check_pay_cycle_change(company: Company):
+    """Pay cycle versions from before pay groups: months already final were calculated with them, so they stay."""
+    last = (PayrollRun.objects.filter(company=company, status=PayrollRun.FINALIZED, run_type=PayrollRun.TYPE_REGULAR)
+            .order_by("-period").values_list("period", flat=True).first())
+    if last:
+        raise RuleViolation(f"{Period.parse(last).label} is final and was calculated with this pay cycle, so it stays. "
+                            "Change the cycle on Rules & settings → Pay groups.", code="month_final")
+
+
 @transaction.atomic
 def add_version(*, company: Company | None, key: str, jurisdiction: str, effective_from: date, payload: dict,
                 title: str, note: str, user) -> tuple[PolicyVersion, list[str]]:
@@ -61,6 +70,9 @@ def add_version(*, company: Company | None, key: str, jurisdiction: str, effecti
     errors = engine_policies.validate_payload(key, payload)
     if errors:
         raise RuleViolation("The rule data is not valid: " + "; ".join(errors), code="invalid_payload")
+    if key == "pay_cycle":
+        raise RuleViolation("The pay cycle is set per pay group now: Rules & settings → Pay groups. A change there starts from "
+                            "a month that is not final yet, and its first month is paid as a transition period.")
 
     warnings = []
     first = first_affected_period(effective_from)
@@ -89,6 +101,8 @@ def add_version(*, company: Company | None, key: str, jurisdiction: str, effecti
 
 @transaction.atomic
 def delete_version(version: PolicyVersion):
+    if version.key == "pay_cycle" and version.company_id:
+        _check_pay_cycle_change(version.company)
     if str(version.pk) in used_version_ids():
         raise RuleViolation("This version was used by a month that is submitted or final, so it cannot be removed. Add a newer version instead.")
     open_runs = PayrollRun.objects.filter(status__in=[PayrollRun.CALCULATED, PayrollRun.REJECTED])

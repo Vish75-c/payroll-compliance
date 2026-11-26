@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { api } from "../../shared/api.js";
 import { Banner, Field, Loading, Modal, day, toast, useAction, useLoad, when } from "../../shared/ui.jsx";
 import { RuleForm, RuleSummary, RuleValues } from "./RuleForms.jsx";
+import { PayGroupsCard } from "../pay_groups/PayGroups.jsx";
+import { PageHelp } from "../../shared/Help.jsx";
 
 const PT_TEMPLATE = {
   state_name: "",
@@ -36,7 +38,7 @@ export default function Rules({ company, me }) {
     <div>
       <div className="topbar">
         <div>
-          <h1>Rules &amp; settings</h1>
+          <div className="title-row"><h1>Rules &amp; settings</h1><PageHelp topic="rules" /></div>
         </div>
         {canEdit && <button className="primary" onClick={() => setEditor({ key: "professional_tax", name: "Professional tax for a new state", jurisdiction: "IN-", effective_from: "", title: "", note: "", value: structuredClone(PT_TEMPLATE) })}>+ Professional tax for a state</button>}
       </div>
@@ -44,6 +46,7 @@ export default function Rules({ company, me }) {
       <h2 style={{ marginTop: 10 }}>Government rules</h2>
       <div className="grid2">{statutory.map((g) => <Group key={`${g.key}${g.jurisdiction}`} g={g} canEdit={canEdit} onNew={() => newVersion(g)} onRemove={remove} busy={busy} />)}</div>
       <h2 style={{ marginTop: 24 }}>Company settings — {company.name}</h2>
+      <PayGroupsCard company={company} me={me} />
       <div className="grid2">{settings.map((g) => <Group key={g.key} g={g} canEdit={canEdit} onNew={() => newVersion(g)} onRemove={remove} busy={busy} />)}</div>
     </div>
   );

@@ -24,6 +24,7 @@ from ..companies.models import Company
 from ..hr_data.canonical import normalize_header
 from ..hr_data.models import DataSnapshot, IngestionJob
 from ..payroll_runs.models import PayrollRun
+from ..pay_groups import service as pay_groups
 from ..rules.models import PolicyVersion
 from .models import OpeningBalance
 
@@ -82,7 +83,9 @@ def create_company(user, data: dict) -> Company:
     code, n = base, 2
     while Company.objects.filter(code=code).exists():
         code, n = f"{base}-{n}", n + 1
-    return Company.objects.create(code=code, **details)
+    company = Company.objects.create(code=code, **details)
+    pay_groups.ensure_default(company)  # "Everyone else": the calendar month until the pay settings say otherwise
+    return company
 
 
 def update_company(company: Company, user, data: dict) -> Company:

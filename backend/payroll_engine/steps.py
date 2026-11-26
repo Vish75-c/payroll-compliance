@@ -85,6 +85,8 @@ def regular_pay(c: EmployeeCalc):
     c.amounts["days_in_month"] = Decimal(earn.days_in_month)
     c.amounts["unpaid_days"] = earn.lop_days
     c.amounts["not_employed_days"] = Decimal(earn.not_employed_days)
+    if c.emp.get("pay_window"):
+        c.amounts["basis_days"] = Decimal(earn.basis_days)
 
     lop_children = []
     divisor = to_str(earn.divisor)
@@ -92,9 +94,13 @@ def regular_pay(c: EmployeeCalc):
     for comp in comps:
         earned = earn.earned[comp]
         c.amounts[f"earned.{comp}"] = earned
+        # A transition period (first month on a new pay cycle) pays only the days it covers.
+        transition = bool(earn.basis_days) and earn.days_in_month != earn.basis_days
+        monthly_text = money_text(c.amounts[f"rate.{comp}"])
+        covered = f"{monthly_text} × {earn.days_in_month} ÷ {earn.basis_days} days" if transition else monthly_text
         cut = earn.cut[comp]
         if cut:
-            formula = f"{money_text(c.amounts[f'rate.{comp}'])} − {money_text(cut)} = {money_text(earned)}"
+            formula = f"{covered} − {money_text(cut)} = {money_text(earned)}"
             reason = f"{component_label(comp)} for the month, less {to_str(earn.unpaid_days)} unpaid days."
             if earn.cut_by_segment and not all_unpaid:
                 formula += " (days outside employment are each cut at the salary in force on that day in the prorated schedule)"
@@ -112,13 +118,14 @@ def regular_pay(c: EmployeeCalc):
             if all_unpaid:
                 cut_formula = "Full monthly amount (no payable days)"
             elif comp in earn.capped_cuts:
-                cut_formula = f"{cut_formula}, capped at the monthly amount"
+                cut_formula = f"{cut_formula}, capped at the {'pay for the days covered' if transition else 'monthly amount'}"
             lop_children.append(
                 Line(code=f"lop.{comp}", label=f"{component_label(comp)} cut", amount=cut, category=INFO,
                      formula=f"{cut_formula} → {money_text(cut)}", inputs={"terms": term_inputs, "divisor": earn.divisor})
             )
         else:
-            formula = money_text(earned) + (" (full month)" if not earn.unpaid_days else "")
+            formula = (f"{covered} = {money_text(earned)}" if transition
+                       else money_text(earned) + (" (full month)" if not earn.unpaid_days else ""))
             reason = f"{component_label(comp)} for the month. {earn.rate_note.capitalize()}."
         c.lines.append(
             Line(
@@ -128,7 +135,7 @@ def regular_pay(c: EmployeeCalc):
                 category=EARNING,
                 formula=formula,
                 reason=reason,
-                rules=[earn.lop_ref, earn.rounding_ref] if cut else [],
+                rules=[earn.lop_ref, earn.rounding_ref, *earn.cycle_refs] if cut else earn.cycle_refs,
                 inputs={"monthly_rate": earn.rate[comp], "unpaid_days": earn.unpaid_days, "divisor": earn.divisor},
             )
         )
@@ -136,7 +143,7 @@ def regular_pay(c: EmployeeCalc):
     if earn.unpaid_days:
         parts = []
         if earn.lop_days:
-            parts.append(f"{to_str(earn.lop_days)} unpaid leave days")
+            parts.append(f"{to_str(earn.lop_days)} unpaid leave days{earn.attendance_text}")
         if earn.not_employed_days:
             parts.append(f"{earn.not_employed_days} days before joining or after leaving")
         if all_unpaid:
@@ -160,7 +167,7 @@ def regular_pay(c: EmployeeCalc):
                 category=INFO,
                 formula=formula,
                 reason=reason,
-                rules=[earn.lop_ref, earn.rounding_ref],
+                rules=[earn.lop_ref, earn.rounding_ref, *earn.cycle_refs],
                 inputs={"unpaid_days": earn.unpaid_days, "divisor": earn.divisor, "monthly_pay": earn.contracted_gross},
                 children=lop_children,
             )

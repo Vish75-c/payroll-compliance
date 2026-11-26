@@ -2,8 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api } from "../../shared/api.js";
 import { go } from "../../shared/routing.js";
 import { DuesTable } from "../dues/Dues.jsx";
+import { PageHelp } from "../../shared/Help.jsx";
 import {
-  AIChip, Banner, Drawer, Field, Loading, Segmented, Select, Stat, StatusChip, TableToolbar, day, inr, isModel, matches, signed, stateName, toast,
+  AIChip, Banner, Drawer, Field, Loading, Segmented, Select, Stat, StatusChip, TableToolbar, cycleHint, day, inr, isModel, matches, signed, stateName, toast,
   useAction, useLoad, usePoll, when,
 } from "../../shared/ui.jsx";
 
@@ -14,6 +15,11 @@ export default function RunPage({ runId, me }) {
   const [waitingFor, setWaitingFor] = useState(null); // {from: status, until: time}
   const [busy, act] = useAction();
   const [drawer, setDrawer] = useState(null);
+  const [viewing, setViewing] = useState(null); // a step picked in the step bar; null follows the month's current step
+  const progress = run?.steps?.length ? currentStep(run.steps) : null;
+  // When the month moves on (data reviewed, submitted, approved, sent back), show the step that is now due. After a
+  // calculation, stay on the results: they are read before going on to submit.
+  useEffect(() => { setViewing(run?.status === "calculated" ? "calculate" : null); }, [progress, run?.status]);
   const poll = useCallback(async () => {
     const r = await reload(true);
     if (r && waitingFor && (r.status !== waitingFor.from || r.calculation_count !== waitingFor.count || r.last_error !== waitingFor.err || Date.now() > waitingFor.until)) {
@@ -40,6 +46,8 @@ export default function RunPage({ runId, me }) {
   };
 
   const employees = run.result?.employees || [];
+  const shown = !draft && run.steps?.length ? (viewing && reachable(run.steps, viewing) ? viewing : currentStep(run.steps)) : null;
+  const show = (key) => { setViewing(key); window.scrollTo(0, 0); };
   const changedCodes = new Set((run.comparison?.employees || []).filter((e) => e.status !== "unchanged").map((e) => e.code));
   const openExplain = (code, focus) => setDrawer({ code, focus });
 
@@ -48,7 +56,11 @@ export default function RunPage({ runId, me }) {
       <div className="topbar">
         <div>
           <a href="#/months" className="small">← Payroll months</a>
-          <h1>{run.period_label}{draft && <span className="muted"> · draft re-run #{run.id}</span>}</h1>
+          <div className="title-row">
+            <h1>{run.period_label}{draft && <span className="muted"> · draft re-run #{run.id}</span>}</h1>
+            <PageHelp topic={draft ? "run.calculate" : `run.${shown || "data"}`} />
+          </div>
+          {cycleHint(run.cycle) && <p className="muted small" style={{ marginTop: 0 }}>{cycleHint(run.cycle)}</p>}
           <div className="row">
             <StatusChip status={run.status} label={run.status_label} />
             <WorkflowBadge wf={run.workflow} />
@@ -63,8 +75,7 @@ export default function RunPage({ runId, me }) {
 
       {draft && run.base_run && (
         <Banner kind="info" title="This is a what-if.">
-          It re-runs {run.base_run.label} (#{run.base_run.id}, {run.base_run.status_label.toLowerCase()}) with today's rules
-          {Object.keys(run.policy_overrides || {}).length ? " and these what-if settings" : ""}. The original month is not changed. <a href={`#/runs/${run.base_run.id}`}>Open the original</a>.
+          {run.base_run.label} (#{run.base_run.id}) with today's rules{Object.keys(run.policy_overrides || {}).length ? " and these settings" : ""}. <a href={`#/runs/${run.base_run.id}`}>Open the original</a>
           {Object.entries(run.policy_overrides || {}).map(([key, values]) => (
             <div key={key} className="small" style={{ marginTop: 4 }}>
               <span className="chip warn">what-if</span> {key}: {Object.entries(values).map(([k, v]) => `${k} = ${v}`).join(", ")}
@@ -72,26 +83,32 @@ export default function RunPage({ runId, me }) {
           ))}
         </Banner>
       )}
-      {!draft && <Stepper steps={run.steps} />}
+      {!draft && <Stepper steps={run.steps} shown={shown} onPick={show} />}
       <NextAction run={run} me={me} />
       {run.last_error && !["finalized"].includes(run.status) && <Banner kind="bad" title="Last action was refused:">{run.last_error}</Banner>}
       {run.newer_hr_data && (
         <Banner kind="warn" title="HR data changed after this month was prepared."
           action={run.can.use_latest_data && <button onClick={() => doAction("use-latest-data", {}, "Now using the latest HR data")}>Use the new data</button>}>
-          Data #{run.newer_hr_data.id} ({run.newer_hr_data.source_system}, {when(run.newer_hr_data.reviewed_at)}) differs for this month. It cannot be approved until it is recalculated with the new data.
+          Data #{run.newer_hr_data.id} ({run.newer_hr_data.source_system}, {when(run.newer_hr_data.reviewed_at)}) differs for this month.
         </Banner>
       )}
       {run.freshness && !run.freshness.fresh && !run.newer_hr_data && (
         <Banner kind="warn" title="Needs to be calculated again:">{run.freshness.reasons.join("; ")}.</Banner>
       )}
       {run.four_eyes_note && <Banner kind="warn">{run.four_eyes_note}</Banner>}
-      <EmployeeNotes issues={(run.result?.issues || []).filter((i) => i.level !== "info")} employees={employees} onOpen={(code) => openExplain(code, "net_pay")} />
+      {(draft || ["calculate", "submit", "approve"].includes(shown)) && (
+        <EmployeeNotes issues={(run.result?.issues || []).filter((i) => i.level !== "info")} employees={employees} onOpen={(code) => openExplain(code, "net_pay")} />
+      )}
 
-      {!draft && <DataSection run={run} busy={busy} onAction={doAction} />}
-      {!draft && <ChangesSection run={run} onChange={() => reload(true)} />}
-
-      {run.result ? (
+      {shown === "data" && <DataSection run={run} busy={busy} onAction={doAction} />}
+      {shown === "changes" && <ChangesSection run={run} onChange={() => reload(true)} />}
+      {(draft || shown === "calculate") && (run.result ? (
         <>
+          {!draft && run.can.calculate && (
+            <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+              <button disabled={!!busy || !!waitingFor} onClick={() => doAction("calculate")}>Calculate again</button>
+            </div>
+          )}
           <Comparison run={run} onExplain={openExplain} />
           <Register run={run} changedCodes={changedCodes} onExplain={openExplain} />
         </>
@@ -102,13 +119,17 @@ export default function RunPage({ runId, me }) {
             {run.can.calculate && <div style={{ marginTop: 10 }}><button className="primary" disabled={!!busy || !!waitingFor} onClick={() => doAction("calculate")}>Calculate {run.period_label}</button></div>}
           </div>
         </div>
+      ))}
+      {shown === "approve" && run.result && <Comparison run={run} onExplain={openExplain} />}
+      {(draft || ["calculate", "approve"].includes(shown)) && run.result?.totals_by_group?.length > 1 && <GroupTotals run={run} />}
+      {(shown === "submit" || shown === "approve") && (
+        <ApprovalSection run={run} busy={busy || waitingFor} onAction={doAction} isChecker={isChecker} isMaker={isMaker} />
       )}
-
-      {!draft && <ApprovalSection run={run} busy={busy || waitingFor} onAction={doAction} isChecker={isChecker} isMaker={isMaker} />}
-      {!draft && <FilesSection run={run} busy={busy || waitingFor} onAction={doAction} />}
-      {!draft && run.dues.length > 0 && <DuesSection run={run} me={me} onChange={reload} />}
-      {run.result && <WhatIf run={run} me={me} />}
-      {run.result && <Repeatable run={run} />}
+      {shown === "files" && <FilesSection run={run} busy={busy || waitingFor} onAction={doAction} />}
+      {shown === "files" && run.dues.length > 0 && <DuesSection run={run} me={me} onChange={reload} />}
+      {(draft || shown === "calculate") && run.result && <WhatIf run={run} me={me} />}
+      {(draft || shown === "calculate") && run.result && <Repeatable run={run} />}
+      {shown && <StepNav steps={run.steps} shown={shown} onPick={show} />}
       <Events run={run} />
 
       {drawer && (
@@ -158,16 +179,49 @@ function WorkflowBadge({ wf }) {
   return <span className="chip" title="Steps run in-process; state is kept in the database">local workflow</span>;
 }
 
-function Stepper({ steps }) {
+// The step that is due: the first one not done (the last one once everything is done).
+function currentStep(steps) {
+  return (steps.find((s) => !s.done) || steps[steps.length - 1]).key;
+}
+
+// A step's page can be opened once the steps before it are done; later ones wait.
+function reachable(steps, key) {
+  const i = steps.findIndex((s) => s.key === key);
+  return i >= 0 && i <= steps.findIndex((s) => s.key === currentStep(steps));
+}
+
+function Stepper({ steps, shown, onPick }) {
   if (!steps?.length) return null;
-  const current = steps.findIndex((s) => !s.done);
+  const current = currentStep(steps);
   return (
-    <div className="steps">
-      {steps.map((s, i) => (
-        <div key={s.key} className={`step ${s.done ? "done" : ""} ${i === current ? "current" : ""}`}>
-          <span className="b">{s.done ? "✓" : i + 1}</span>{s.label}
-        </div>
-      ))}
+    <nav className="steps" aria-label="Steps of this month">
+      {steps.map((s, i) => {
+        const open = reachable(steps, s.key);
+        return (
+          <button key={s.key} type="button" disabled={!open} onClick={() => onPick(s.key)} aria-current={s.key === shown ? "step" : undefined}
+            title={open ? `Open: ${s.label}` : "Finish the steps before this one first"}
+            className={`step ${s.done ? "done" : ""} ${s.key === current ? "current" : ""} ${s.key === shown ? "shown" : ""}`}>
+            <span className="b">{s.done ? "✓" : i + 1}</span>{s.label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function StepNav({ steps, shown, onPick }) {
+  const i = steps.findIndex((s) => s.key === shown);
+  const prev = steps[i - 1];
+  const next = steps[i + 1];
+  const nextOpen = next && reachable(steps, next.key);
+  return (
+    <div className="step-nav">
+      {prev ? <button type="button" onClick={() => onPick(prev.key)}>← {prev.label}</button> : <span />}
+      <span className="muted small">Step {i + 1} of {steps.length}</span>
+      {next ? (
+        <button type="button" className={nextOpen ? "primary" : ""} disabled={!nextOpen} onClick={() => onPick(next.key)}
+          title={nextOpen ? "" : `Finish “${steps[i].label}” first`}>{next.label} →</button>
+      ) : <span />}
     </div>
   );
 }
@@ -178,16 +232,16 @@ function NextAction({ run, me }) {
   let text = null;
   let kind = "info";
   if (run.run_type === "draft") return null;
-  if (run.status === "finalized") { text = `Final. Approved by ${run.decided_by?.name} on ${when(run.decided_at)}. The register and payment files are below.`; kind = "ok"; }
+  if (run.status === "finalized") { text = `Final. Approved by ${run.decided_by?.name} on ${when(run.decided_at)}.`; kind = "ok"; }
   else if (run.status === "awaiting_approval") {
     text = isChecker && !run.four_eyes_note ? "Waiting for you. Check what changed and approve, or send it back with a reason."
-      : `Submitted by ${run.submitted_by?.name} on ${when(run.submitted_at)}. Waiting for the finance head. It keeps waiting through restarts.`;
+      : `Submitted by ${run.submitted_by?.name} on ${when(run.submitted_at)}. Waiting for the finance head.`;
     kind = "warn";
   } else if (run.status === "rejected") { text = `Sent back by ${run.decided_by?.name}: "${run.decision_note}". Make the corrections, calculate and submit again.`; kind = "bad"; }
   else if (isMaker) {
-    if (!run.data_reviewed_at) text = "Step 1: review the HR data that was read, then mark it as reviewed.";
+    if (!run.data_reviewed_at) text = "Review the HR data, then mark it as reviewed.";
     else if (run.pending_changes) text = "Confirm or discard the proposed changes.";
-    else if (run.status === "draft") text = "Calculate the month. You can add changes in plain English first.";
+    else if (run.status === "draft") text = "Calculate the month.";
   } else text = "This month is being prepared by a finance team employee.";
   return text ? <Banner kind={kind}>{text}</Banner> : null;
 }
@@ -234,7 +288,7 @@ function DataSection({ run, busy, onAction }) {
         <div>
           <b>Data #{s.id}</b> from {s.source_system} · {s.employee_count} employees · read {when(s.created_at)}
           <div className="muted small">
-            Salary changes recorded up to {day(run.knowledge_date)} are used.{" "}
+            Known as of {day(run.knowledge_date)}{" "}
             {s.errors ? <span className="chip bad">{s.errors} errors</span> : s.warnings ? <span className="chip warn">{s.warnings} warnings</span> : <span className="chip ok">all checks passed</span>}
           </div>
         </div>
@@ -414,11 +468,10 @@ function PossibleAbsences({ run, onAdded }) {
       {data.no_check_in.length > 0 && (
         <Banner kind="warn" title={`${data.no_check_in.length} ${data.no_check_in.length > 1 ? "people have" : "person has"} no check-in at all:`}>
           {data.no_check_in.map((p) => `${p.name} (${p.employee_code}, ${p.working_days} working days)`).join(", ")}.
-          This is more likely someone who does not use the attendance system than a month of absence. Check, and use “Add by hand” if they were absent.
         </Banner>
       )}
       {data.figure_given.length > 0 && (
-        <p className="muted small">Not checked: {data.figure_given.map((p) => p.name).join(", ")} (their unpaid days for the month are given as a figure).</p>
+        <p className="muted small">Unpaid days given as a figure: {data.figure_given.map((p) => p.name).join(", ")}</p>
       )}
       {data.absences.length > 0 && (
         <>
@@ -529,12 +582,12 @@ function AddByHand({ run, onAdded }) {
             <option value="extra_unpaid_days">Unpaid leave</option>
           </select>
         </Field>
-        <Field label="Employee" hint={f.who && !person ? "Pick a name from the list" : person ? `${person.code}${person.work_state ? " · " + person.work_state : ""}` : `${people.length} people in ${run.period_label}`}>
+        <Field label="Employee" note={f.who && !person ? "Pick a name from the list" : person ? `${person.code}${person.work_state ? " · " + person.work_state : ""}${person.pay_group ? " · " + person.pay_group : ""}` : undefined}>
           <input list={`people-${run.id}`} value={f.who} onChange={set("who")} placeholder="Start typing a name or ID" />
           <datalist id={`people-${run.id}`}>{people.map((p) => <option key={p.code} value={label(p)} />)}</datalist>
         </Field>
         {absence ? (
-          <Field label="Unpaid days" hint={!rangeDays ? "Whole or half days"
+          <Field label="Unpaid days" hint="Whole or half days" note={!rangeDays ? undefined
             : daysMatch ? `${rangeDays} day${rangeDays > 1 ? "s" : ""} from the dates${daysNum === rangeDays - 0.5 ? ", one of them a half day" : ""}`
             : `The dates cover ${rangeDays} day${rangeDays > 1 ? "s" : ""}: enter ${rangeDays} or ${rangeDays - 0.5}, or change the dates`}>
             <input type="number" min="0.5" step="0.5" max={rangeDays || undefined} value={f.days} onChange={set("days")}
@@ -584,11 +637,6 @@ function AddByHand({ run, onAdded }) {
         <button className="primary" disabled={!ready || !!busy}>
           {busy ? "Adding…" : lateAbsence ? (f.direction === "remove" ? "Pay these days back" : "Recover these days") : absence ? "Add unpaid absence" : salary ? "Add salary change" : f.kind === "one_time_earning" ? "Add bonus" : "Add deduction"}
         </button>
-        <span className="muted small">
-          {lateAbsence ? `That month stays as paid; the pay for these days is worked out with its rules and ${f.direction === "remove" ? "paid back" : "recovered"} in this month. `
-            : f.kind === "extra_unpaid_days" ? "Added on top of the unpaid leave in the HR data. "
-            : salary ? "Keeps counting in later months. Enter it in the HR tool too, so the next read agrees. " : ""}
-        </span>
       </div>
     </form>
   );
@@ -682,7 +730,7 @@ function Comparison({ run, onExplain }) {
       </div>
       <div className="card">
         <div className="row between">
-          <div><b>In plain words</b> <span className="muted small">An AI writes this from the comparison above. It changes nothing, and every number in it is checked against the calculation.</span></div>
+          <b>In plain words</b>
           <button disabled={!!busy} onClick={() => explain(false)}>{busy ? "Writing…" : ai ? "Show saved summary" : "Explain the changes"}</button>
         </div>
         {ai && (
@@ -734,7 +782,10 @@ function Register({ run, changedCodes, onExplain }) {
   const [query, setQuery] = useState("");
   const [show, setShow] = useState("all");
   const [state, setState] = useState("");
+  const [group, setGroup] = useState("");
   const [sort, setSort] = useState({ key: "", dir: 1 });
+  const groups = run.result.totals_by_group || [];
+  const groupOf = (e) => e.pay_window?.group || "";
   const showOther = emps.some((e) => Number(cellValue(e, "_other_ded")));
   const cols = REG_COLS.filter(([k]) => k !== "_other_ded" || showOther);
   const added = new Set((run.comparison?.employees || []).filter((e) => e.status === "added").map((e) => e.code));
@@ -746,7 +797,7 @@ function Register({ run, changedCodes, onExplain }) {
     new: (e) => added.has(e.code),
   };
   const states = [...new Set(emps.map((e) => e.work_state).filter(Boolean))].sort();
-  let rows = emps.filter((e) => tests[show](e) && (!state || e.work_state === state) && matches(query, e.name, e.code));
+  let rows = emps.filter((e) => tests[show](e) && (!state || e.work_state === state) && (!group || groupOf(e) === group) && matches(query, e.name, e.code));
   if (sort.key) {
     const val = (e) => (sort.key === "_name" ? e.name : Number(cellValue(e, sort.key) || 0));
     rows = [...rows].sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * sort.dir);
@@ -764,6 +815,7 @@ function Register({ run, changedCodes, onExplain }) {
       <TableToolbar query={query} onQuery={setQuery} shown={rows.length} total={emps.length} noun="employees">
         <Segmented value={show} onChange={setShow} options={options} />
         {states.length > 1 && <Select value={state} onChange={setState} label="State" options={[["", "All states"], ...states.map((x) => [x, stateName(x)])]} />}
+        {groups.length > 1 && <Select value={group} onChange={setGroup} label="Pay group" options={[["", "All pay groups"], ...groups.map((g) => [g.group, `${g.name} (${g.people})`])]} />}
       </TableToolbar>
       <div className="table-wrap tall register">
         <table>
@@ -773,20 +825,38 @@ function Register({ run, changedCodes, onExplain }) {
           </tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td colSpan={cols.length + 1} className="empty">Nobody matches. Clear the search or pick “Everyone”.</td></tr>}
-            {rows.map((e) => (
-              <tr key={e.code} className={changedCodes.has(e.code) ? "changed" : ""}>
-                <td><b>{e.name}</b><div className="muted small">{e.code} · {e.work_state}</div></td>
-                {cols.map(([k, , money]) => {
-                  const v = cellValue(e, k);
-                  const zero = !Number(v);
-                  return (
-                    <td key={k} className={`num click ${zero ? "muted" : ""}`} onClick={() => onExplain(e.code, focusFor(e, k))} title="Why?">
-                      {money === false ? (zero ? "—" : v) : zero ? "—" : inr(v)}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+            {/* With more than one pay group (and no sorting), people are listed by group, each with its own subtotal. */}
+            {(groups.length > 1 && !sort.key ? groups.map((g) => ({ g, list: rows.filter((e) => groupOf(e) === g.group) })) : [{ g: null, list: rows }])
+              .filter(({ g, list }) => !g || list.length).map(({ g, list }) => (
+                <React.Fragment key={g?.group ?? "all"}>
+                  {g && (
+                    <tr className="group-row"><td colSpan={cols.length + 1}>
+                      {g.name} · {day(g.salary_from)} to {day(g.salary_to)}{g.pay_date ? ` · paid ${day(g.pay_date)}` : ""} · {g.people} {g.people === 1 ? "person" : "people"}
+                    </td></tr>
+                  )}
+                  {list.map((e) => (
+                    <tr key={e.code} className={changedCodes.has(e.code) ? "changed" : ""}>
+                      <td><b>{e.name}</b><div className="muted small">{e.code} · {e.work_state}{groups.length > 1 && e.pay_window ? ` · ${e.pay_window.group_name}` : ""}
+                        {e.pay_window?.transition && <span className="chip warn" style={{ marginLeft: 6 }} title={`New pay cycle: paid for ${day(e.pay_window.salary_from)} to ${day(e.pay_window.salary_to)} (${e.amounts.days_in_month} of ${e.amounts.basis_days} days); unpaid days counted ${day(e.pay_window.attendance_from)} to ${day(e.pay_window.attendance_to)}`}>transition</span>}</div></td>
+                      {cols.map(([k, , money]) => {
+                        const v = cellValue(e, k);
+                        const zero = !Number(v);
+                        return (
+                          <td key={k} className={`num click ${zero ? "muted" : ""}`} onClick={() => onExplain(e.code, focusFor(e, k))} title="Why?">
+                            {money === false ? (zero ? "—" : v) : zero ? "—" : inr(v)}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                  {g && (
+                    <tr className="subtotal">
+                      <td>{g.name} ({list.length})</td>
+                      {cols.map(([k, , money]) => <td key={k} className="num">{money === false ? sum(list, k) : inr(sum(list, k))}</td>)}
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
           </tbody>
           <tfoot>
             {filtered && (
@@ -815,6 +885,32 @@ function Register({ run, changedCodes, onExplain }) {
   );
 }
 
+// Each pay group's dates, pay date and totals (one approval covers them all).
+function GroupTotals({ run }) {
+  const groups = run.result.totals_by_group;
+  return (
+    <>
+      <SectionTitle title="By pay group" />
+      <div className="table-wrap card" style={{ padding: 0 }}>
+        <table>
+          <thead><tr><th>Pay group</th><th>Paid for</th><th className="num">People</th><th className="num">Gross</th><th className="num">Deductions</th><th className="num">Net pay</th><th>Pay date</th></tr></thead>
+          <tbody>{groups.map((g) => (
+            <tr key={g.group}>
+              <td><b>{g.name}</b>{g.transition > 0 && <span className="chip warn" style={{ marginLeft: 6 }}>{g.transition} in transition</span>}</td>
+              <td className="small">{day(g.salary_from)} to {day(g.salary_to)}</td>
+              <td className="num">{g.people}</td>
+              <td className="num">{inr(g.totals.gross)}</td>
+              <td className="num">{inr(g.totals.total_deductions)}</td>
+              <td className="num"><b>{inr(g.totals.net_pay)}</b></td>
+              <td>{g.pay_date ? day(g.pay_date) : "—"}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 // ------------------------------------------------------------------ explain drawer
 function ExplainDrawer({ run, employee, focus, comparison, onClose }) {
   if (!employee) return null;
@@ -825,7 +921,7 @@ function ExplainDrawer({ run, employee, focus, comparison, onClose }) {
     ["Paid by the company", lines.filter((l) => l.category === "employer" || l.code === "employer_cost")],
   ];
   return (
-    <Drawer title={`${employee.name} · ${run.period_label}`} subtitle={`${employee.code} · net pay ${inr(employee.amounts.net_pay)} · every line below is worked out by the calculation, never by AI`} onClose={onClose}>
+    <Drawer title={`${employee.name} · ${run.period_label}`} subtitle={`${employee.code} · net pay ${inr(employee.amounts.net_pay)}`} onClose={onClose}>
       {comparison && comparison.status !== "unchanged" && (
         <Banner kind="info" title={`Why it changed since ${run.comparison.before_label} (${signed(comparison.net_delta)} net):`}>
           <ul className="drivers">{comparison.drivers.map((d, i) => <li key={i}>{d.text}</li>)}</ul>
@@ -935,7 +1031,6 @@ function ApprovalSection({ run, busy, onAction, isChecker, isMaker }) {
             </>
           )}
         </div>
-        {run.status === "awaiting_approval" && !isChecker && <p className="muted small" style={{ marginTop: 8 }}>Sign in as the finance head (e.g. <b>finance head</b>) to approve.</p>}
       </div>
     </>
   );
@@ -950,11 +1045,11 @@ function FilesSection({ run, busy, onAction }) {
       <div className="card">
         {!files && run.status === "approved" ? (
           <>
-            <p className="muted">Approved, but the files have not been written yet{run.last_error ? " (see the message at the top)" : ""}. The approval stands; finalising again does not change any number.</p>
+            <p className="muted">Approved; files not written yet.</p>
             {run.can.finalize && <button className="primary" disabled={!!busy} onClick={() => onAction("finalize")}>Finalise again</button>}
           </>
         ) : !files ? (
-          <p className="muted">Written when the finance head approves. Until then you can download a draft register from the table above.</p>
+          <p className="muted">Not written yet.</p>
         ) : (
           <div className="grid2">
             <div>
@@ -965,7 +1060,6 @@ function FilesSection({ run, busy, onAction }) {
                   <tr key={name}><td><a href={`/api/runs/${run.id}/files/${name}`}>{name}</a></td><td className="num">{f.rows}</td></tr>
                 ))}</tbody>
               </table></div>
-              <p className="muted small" style={{ marginTop: 6 }}>One row per employee. No government IDs; no payment is made.</p>
             </div>
             <div>
               <h3>Files match the register</h3>
@@ -986,7 +1080,7 @@ function DuesSection({ run, me, onChange }) {
     <>
       <SectionTitle n="7" title="What to pay the government" right={<a href="#/dues" className="small">All dues</a>} />
       <div className="card">
-        <p className="muted" style={{ marginTop: 0 }}>{inr(total)} for {run.period_label}: the deductions above plus the company's own PF and ESI. Record each payment with its challan number.</p>
+        <p style={{ marginTop: 0 }}><b>{inr(total)}</b> for {run.period_label}</p>
         <DuesTable dues={run.dues} canRecord={me.roles.includes("maker") || me.roles.includes("checker")} onChange={onChange} showMonth={false} />
       </div>
     </>
@@ -1033,7 +1127,6 @@ function WhatIf({ run, me }) {
         </div>
         <div className="row" style={{ marginTop: 12 }}>
           <button className="primary" disabled={!!busy} onClick={create}>Run a draft and compare</button>
-          {run.run_type === "draft" && <span className="muted small">This creates another draft of #{run.base_run.id}.</span>}
         </div>
       </div>
     </>
@@ -1047,7 +1140,7 @@ function Repeatable({ run }) {
   return (
     <div className="card" style={{ marginTop: 16 }}>
       <div className="row between">
-        <div><b>Same inputs, same result</b> <span className="muted small">Calculate again from the stored inputs (no database, no AI) and compare fingerprints.</span></div>
+        <b>Same inputs, same result</b>
         <button disabled={!!busy} onClick={verify}>Run again and compare</button>
       </div>
       {out && (

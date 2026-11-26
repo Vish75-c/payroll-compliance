@@ -1,7 +1,9 @@
 """What the company must deposit with the government after a month is final, by when, and whether it has.
 
 The amounts come from the final month's result and never change. Due dates come from the rule version
-the month used (``due_day_next_month``), so a rule change also moves the date. A person records the
+the month used (``due_day_next_month``), so a rule change also moves the date. TDS is deducted when salary is
+paid, so it is due by the 7th of the month after each person's pay date (their pay group's pay day); when pay groups
+are paid in different months, TDS is one line per month it is deducted in. A person records the
 payment (date and challan / TRRN / CRN number); that, and any undo, goes into the month's audit trail.
 """
 from __future__ import annotations
@@ -15,7 +17,7 @@ from django.utils import timezone
 
 from payroll_engine import policies as engine_policies
 from payroll_engine.money import d, inr, to_str
-from payroll_engine.periods import Period, parse_date
+from payroll_engine.periods import Period, parse_date, pay_date
 
 from ...shared.permissions import RuleViolation, is_in_group
 from ..payroll_runs.events import record
@@ -33,21 +35,47 @@ def due_date(period: Period, day: int | None) -> date | None:
     return date(nxt.year, nxt.month, min(int(day), nxt.days))
 
 
-def _due_day(versions: list[dict], key: str, period: Period, jurisdiction: str) -> date | None:
+def _due_day(versions: list[dict], key: str, period: Period, jurisdiction: str, pay_day: int | None = None) -> date | None:
     rule = engine_policies.resolve(versions, key, period, jurisdiction)
+    day = rule and rule.payload.get("due_day_next_month")
+    if key == "income_tax" and pay_day:
+        # TDS on salary is deducted when the salary is paid (section 192), so it is due after the month it is paid in.
+        deducted = Period.of(pay_date(engine_policies.salary_window(versions, period).end, pay_day))
+        if deducted.month == 3:
+            return date(deducted.year, 4, 30)
+        return due_date(deducted, day)
     if key == "income_tax" and period.month == 3:
         # TDS deducted in March is due by 30 April (Income-tax Rules, rule 30), not the 7th.
         return date(period.year, 4, 30)
-    return due_date(period, rule and rule.payload.get("due_day_next_month"))
+    return due_date(period, day)
+
+
+def tds_due_date(versions: list[dict], period: Period, deducted: Period) -> date | None:
+    """TDS deducted in ``deducted`` (the month salary is paid) is due by the 7th of the month after; March's by 30 April."""
+    if deducted.month == 3:
+        return date(deducted.year, 4, 30)
+    rule = engine_policies.resolve(versions, "income_tax", period, "IN")
+    return due_date(deducted, rule and rule.payload.get("due_day_next_month"))
+
+
+def _deducted_in(e: dict) -> str:
+    """The month a person's TDS is deducted in: the month of their pay date ("" when no pay day is known)."""
+    pw = e.get("pay_window") or {}
+    if not pw.get("pay_day"):
+        return ""
+    return str(Period.of(pay_date(parse_date(pw["salary_to"]), int(pw["pay_day"]))))
 
 
 def amounts_of(result: dict) -> list[dict]:
-    """The dues of one month, worked out from its result: one line per kind, and per state for PT."""
+    """The dues of one month, worked out from its result: one line per kind, per state for PT, and for TDS per month
+    it is deducted in when pay groups are paid in different months."""
+    deducted = {e["code"]: _deducted_in(e) for e in result["employees"] if d(e["amounts"].get("tds", "0"))}
+    split_tds = len(set(deducted.values())) > 1
     sums: dict[tuple[str, str], list[Decimal]] = defaultdict(lambda: [Decimal(0), Decimal(0), 0])
     for e in result["employees"]:
         a = e["amounts"]
         for kind, emp_key, er_key, where in (
-            (StatutoryDue.TDS, "tds", None, ""),
+            (StatutoryDue.TDS, "tds", None, deducted.get(e["code"], "") if split_tds else ""),
             (StatutoryDue.PF, "pf_employee", "pf_employer", ""),
             (StatutoryDue.ESI, "esi_employee", "esi_employer", ""),
             (StatutoryDue.PT, "pt", None, e.get("work_state", "")),
@@ -64,8 +92,12 @@ def amounts_of(result: dict) -> list[dict]:
     for (kind, where), (emp_amt, er_amt, people) in sorted(sums.items(), key=lambda kv: (order.index(kv[0][0]), kv[0][1])):
         if emp_amt + er_amt == 0:
             continue  # e.g. no one is covered by ESI: nothing to deposit
-        out.append({"kind": kind, "jurisdiction": where, "employee_amount": emp_amt, "employer_amount": er_amt,
-                    "total": emp_amt + er_amt, "people": people})
+        line = {"kind": kind, "jurisdiction": where, "employee_amount": emp_amt, "employer_amount": er_amt,
+                "total": emp_amt + er_amt, "people": people}
+        if kind == StatutoryDue.TDS:
+            months = {deducted[e["code"]] for e in result["employees"] if e["code"] in deducted}
+            line["deducted"] = where or (months.pop() if len(months) == 1 else "")
+        out.append(line)
     return out
 
 
@@ -77,7 +109,10 @@ def create_for_run(run: PayrollRun) -> list[StatutoryDue]:
     created = []
     for line in amounts_of(run.result):
         key, jurisdiction = keys.get(line["kind"], ("professional_tax", f"IN-{line['jurisdiction']}"))
-        when = _due_day(versions, key, period, jurisdiction)
+        if line.get("deducted"):
+            when = tds_due_date(versions, period, Period.parse(line["deducted"]))
+        else:  # a month stored before pay groups: the company's pay day, if it had one
+            when = _due_day(versions, key, period, jurisdiction, (run.input or {}).get("company", {}).get("pay_day") or run.company.pay_day)
         if when is None:
             raise RuleViolation(f"The {LABELS[line['kind']]} rule used for {period.label} has no due day "
                                 f"('due_day_next_month'), so its due date is unknown.")
@@ -108,6 +143,8 @@ def status_of(due: StatutoryDue, today: date | None = None) -> dict:
 
 
 def title(due: StatutoryDue) -> str:
+    if due.kind == StatutoryDue.TDS and due.jurisdiction:
+        return f"{LABELS[due.kind]} (deducted {Period.parse(due.jurisdiction).short_label})"
     return LABELS[due.kind] + (f" ({due.jurisdiction})" if due.jurisdiction else "")
 
 

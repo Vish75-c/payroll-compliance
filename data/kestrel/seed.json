@@ -1,0 +1,176 @@
+{
+ "_comment": "Facts of the pay-cycle sample company; files in this folder are made from it by scripts/make_kestrel_data.py.",
+ "company": {
+  "code": "kestrel",
+  "name": "Kestrel Analytics Pvt Ltd",
+  "city": "Bengaluru",
+  "state": "KA",
+  "pan": "AABCK5678L",
+  "tan": "BLRK05678C",
+  "pf_establishment_code": "KNBNG0056789000",
+  "esi_employer_code": "53000567890001001",
+  "pay_day": 1,
+  "first_month": "2026-11",
+  "settings": {
+   "lop": {
+    "divisor": "days_in_month",
+    "day_rate_rounding": null
+   }
+  },
+  "pay_groups": [
+   {
+    "name": "Management",
+    "mode": "calendar",
+    "start_day": 1,
+    "pay_day": 1,
+    "covers": {
+     "departments": [
+      "Leadership"
+     ]
+    }
+   },
+   {
+    "name": "Shift staff",
+    "mode": "shifted",
+    "start_day": 26,
+    "pay_day": 28,
+    "covers": {
+     "departments": [
+      "Analytics",
+      "Engineering"
+     ]
+    }
+   }
+  ]
+ },
+ "employees": [
+  {
+   "code": "KS001",
+   "name": "Arvind Rao",
+   "gender": "M",
+   "location": "Bengaluru, Karnataka",
+   "doj": "2019-04-15",
+   "department": "Leadership",
+   "designation": "Director"
+  },
+  {
+   "code": "KS002",
+   "name": "Meera Joshi",
+   "gender": "F",
+   "location": "Bengaluru, Karnataka",
+   "doj": "2021-07-05",
+   "department": "Analytics",
+   "designation": "Senior Analyst"
+  },
+  {
+   "code": "KS003",
+   "name": "Sameer Kulkarni",
+   "gender": "M",
+   "location": "Bengaluru, Karnataka",
+   "doj": "2022-02-14",
+   "department": "Analytics",
+   "designation": "Analyst"
+  },
+  {
+   "code": "KS004",
+   "name": "Nikhil Verma",
+   "gender": "M",
+   "location": "Bengaluru, Karnataka",
+   "doj": "2026-10-28",
+   "department": "Engineering",
+   "designation": "Data Engineer"
+  },
+  {
+   "code": "KS005",
+   "name": "Anjali Desai",
+   "gender": "F",
+   "location": "Bengaluru, Karnataka",
+   "doj": "2026-11-17",
+   "department": "Analytics",
+   "designation": "Analyst",
+   "pay_group": "Shift staff"
+  }
+ ],
+ "salaries": [
+  {
+   "code": "KS001",
+   "effective_from": "2026-04-01",
+   "basic": 125000,
+   "hra": 50000,
+   "special_allowance": 75000,
+   "recorded_on": "2026-03-27"
+  },
+  {
+   "code": "KS002",
+   "effective_from": "2026-04-01",
+   "basic": 45000,
+   "hra": 18000,
+   "special_allowance": 27000,
+   "recorded_on": "2026-03-27"
+  },
+  {
+   "code": "KS003",
+   "effective_from": "2026-04-01",
+   "basic": 22500,
+   "hra": 9000,
+   "special_allowance": 13500,
+   "recorded_on": "2026-03-27"
+  },
+  {
+   "code": "KS004",
+   "effective_from": "2026-10-28",
+   "basic": 30000,
+   "hra": 12000,
+   "special_allowance": 18000,
+   "recorded_on": "2026-10-28"
+  },
+  {
+   "code": "KS005",
+   "effective_from": "2026-11-17",
+   "basic": 21000,
+   "hra": 8400,
+   "special_allowance": 12600,
+   "recorded_on": "2026-11-17"
+  },
+  {
+   "code": "KS002",
+   "effective_from": "2026-11-01",
+   "basic": 70000,
+   "hra": 28000,
+   "special_allowance": 42000,
+   "recorded_on": "2026-10-28"
+  }
+ ],
+ "leave": [
+  {
+   "code": "KS003",
+   "type": "Loss of Pay",
+   "from": "2026-10-21",
+   "start_breakdown": "Full Day",
+   "to": "2026-10-22",
+   "end_breakdown": "Full Day",
+   "days": 2,
+   "status": "Approved"
+  },
+  {
+   "code": "KS003",
+   "type": "Loss of Pay",
+   "from": "2026-10-27",
+   "start_breakdown": "Full Day",
+   "to": "2026-10-28",
+   "end_breakdown": "Full Day",
+   "days": 2,
+   "status": "Approved"
+  },
+  {
+   "code": "KS004",
+   "type": "Loss of Pay",
+   "from": "2026-11-10",
+   "start_breakdown": "First Half",
+   "to": "2026-11-10",
+   "end_breakdown": "First Half",
+   "days": 0.5,
+   "status": "Approved"
+  }
+ ]
+}

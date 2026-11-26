@@ -86,6 +86,40 @@ function Components({ value, onChange }) {
     </div>
   );
 }
+export const PAY_CYCLES = [
+  ["calendar", "Calendar month (1st to the last day)"],
+  ["attendance_cutoff", "Calendar month, unpaid days counted on a cycle"],
+  ["shifted", "Shifted: salary and unpaid days on a cycle"],
+];
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// "November: 26 Oct to 25 Nov" for a cycle that starts on the 26th (as the engine's cycle_window works it out).
+export function cycleExample(v, month = 11) {
+  const day = Number(v?.start_day);
+  if (!v || v.mode === "calendar" || !(day >= 2 && day <= 28)) return `${MONTHS[month - 1]}: 1 ${MONTH_ABBR[month - 1]} to the last day`;
+  const prev = (month + 10) % 12;
+  return `${MONTHS[month - 1]}: ${day} ${MONTH_ABBR[prev]} to ${day - 1} ${MONTH_ABBR[month - 1]}`;
+}
+
+export function PayCycleFields({ v, onChange, disabled }) {
+  const mode = v.mode || "calendar";
+  const setMode = (m) => onChange(m === "calendar" ? { mode: m, start_day: 1 } : { mode: m, start_day: Number(v.start_day) >= 2 ? v.start_day : 26 });
+  return (
+    <>
+      <Field label="Pay cycle" hint={mode === "attendance_cutoff" ? "Salary is for the calendar month; unpaid days after the cutoff count in the next month."
+        : mode === "shifted" ? "Salary, unpaid days, joining and leaving are all counted within the cycle." : "Salary and unpaid days for the 1st to the last day of the month."}>
+        <select value={mode} disabled={disabled} onChange={(e) => setMode(e.target.value)}>{PAY_CYCLES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+      </Field>
+      {mode !== "calendar" && (
+        <Field label="Cycle starts on day" hint={cycleExample(v)}>
+          <input type="number" min="2" max="28" disabled={disabled} value={v.start_day ?? ""}
+            onChange={(e) => onChange({ ...v, start_day: e.target.value === "" ? "" : Number(e.target.value) })} />
+        </Field>
+      )}
+    </>
+  );
+}
+
 function DueDay({ value, onChange }) {
   return <Field label="Pay to the government by (day of next month)"><input inputMode="numeric" value={value ?? ""} onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value) || e.target.value)} /></Field>;
 }
@@ -195,6 +229,8 @@ export function RuleForm({ ruleKey, value, onChange }) {
       return <SalaryStructureForm v={v} onChange={onChange} />;
     case "work_calendar":
       return <WorkCalendarForm v={v} onChange={onChange} />;
+    case "pay_cycle":
+      return <div className="grid3"><PayCycleFields v={v} onChange={onChange} /></div>;
     default:
       return <p className="muted small">This setting has no form yet. Use “Edit as JSON” below.</p>;
   }
@@ -382,7 +418,6 @@ function SalaryStructureForm({ v, onChange }) {
         </table>
       </div>
       <div><button type="button" className="small" onClick={() => onChange({ ...v, components: [...comps, { code: "conveyance", share: "" }] })}>+ Add a part</button></div>
-      <p className="muted small" style={{ margin: 0 }}>Used when a salary comes as one monthly figure (for example a contract wage). Exactly one part takes whatever is left.</p>
     </div>
   );
 }
@@ -517,6 +552,12 @@ export function RuleSummary({ ruleKey, payload }) {
       return <Lines items={[v.enabled === false ? "Arrears are not paid." : `Arrears are paid for up to ${v.lookback_months ?? 12} months back.`]} />;
     case "salary_structure":
       return <Lines items={[(v.components || []).map((c) => `${label(COMPONENTS, c.code)} ${c.share === "remainder" ? "the rest" : pct(c.share)}`).join(" · ")]} />;
+    case "pay_cycle":
+      return <Lines items={[
+        label(PAY_CYCLES, v.mode || "calendar") + ".",
+        v.mode && v.mode !== "calendar" && `${cycleExample(v)}${v.mode === "attendance_cutoff" ? " for unpaid days; salary for the calendar month" : ""}.`,
+        "Fixed once a month is final.",
+      ]} />;
     case "work_calendar":
       return <Lines items={[
         `Days off every week: ${(v.weekly_off || []).map(cap).join(", ") || "none"}.`,

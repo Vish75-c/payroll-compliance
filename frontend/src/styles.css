@@ -1076,3 +1076,49 @@ button.kpi { min-height: 0; white-space: normal; justify-content: initial; curso
 .seg-icon { display: inline-grid; place-items: center; min-width: 22px; }
 .seg-icon svg { width: 18px; height: 18px; }
 
+
+/* Month page: one step per page. The step bar opens a step; Back / Next move between them. */
+.steps button.step { background: none; border: 0; padding: 4px 2px 6px; font: inherit; cursor: pointer; border-radius: 10px; }
+.steps button.step:disabled { cursor: not-allowed; opacity: .55; }
+.steps button.step:not(:disabled):hover { color: var(--brand); }
+.steps button.step.shown { color: var(--brand); font-weight: 650; }
+.steps button.step.shown::after { content: ""; position: absolute; left: 22%; right: 22%; bottom: -2px; height: 3px; border-radius: 3px; background: var(--brand); }
+.steps button.step:focus-visible { outline: none; box-shadow: var(--ring); }
+.step-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 22px; padding: 14px 16px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+@media (max-width: 560px) { .step-nav { flex-wrap: wrap; } .step-nav > .muted { order: -1; width: 100%; text-align: center; } }
+
+.steps button.step { box-shadow: none; }
+
+/* Pay groups and the Employees page */
+.pay-groups { margin-bottom: 16px; }
+.pay-group-form { margin: 10px 0; background: var(--bg, var(--panel)); }
+.chips-input { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); min-height: 40px; }
+.chips-input input { border: 0; outline: none; flex: 1; min-width: 120px; padding: 4px; background: transparent; box-shadow: none; }
+.chip-x { border: 0; background: none; padding: 0 0 0 4px; cursor: pointer; font: inherit; color: inherit; box-shadow: none; min-height: 0; }
+.bulk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; position: sticky; top: 8px; z-index: 2; }
+.group-row td { background: var(--line-2); font-weight: 650; }
+tr.subtotal td { font-weight: 600; background: var(--panel-2); border-bottom: 1.5px solid var(--line-strong); }
+.register .group-row td { position: static; text-align: left; color: var(--ink); font-size: 13px; }
+
+/* Help: a "?" by each page title (opens the page's help), an ⓘ by a field label (its hint), and the Help page. */
+.help-btn { width: 30px; height: 30px; min-height: 0; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; line-height: 1; vertical-align: middle; flex: 0 0 auto; }
+.title-row { display: flex; align-items: center; gap: 10px; }
+.title-row h1, .title-row h2 { margin: 0; }
+.help-points { margin: 4px 0 0; padding-left: 20px; display: grid; gap: 8px; line-height: 1.5; }
+.field-label { display: inline-flex; align-items: center; gap: 6px; }
+.info-tip { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%;
+  font-size: 12px; font-weight: 600; color: var(--ink-3); cursor: help; outline: none; }
+.info-tip:hover, .info-tip:focus-visible, .info-tip.open { color: var(--brand); }
+.info-tip:focus-visible { box-shadow: var(--ring); }
+.info-tip::after { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); z-index: 30;
+  width: max-content; max-width: 280px; padding: 8px 10px; border-radius: 8px; background: var(--ink); color: var(--panel);
+  font-size: 12px; font-weight: 500; line-height: 1.4; white-space: normal; text-align: left; box-shadow: var(--shadow);
+  opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+.info-tip:hover::after, .info-tip:focus-visible::after, .info-tip.open::after { opacity: 1; }
+.help-page .help-search { width: 100%; max-width: 480px; margin-bottom: 12px; }
+.help-index { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.help-topic { margin-bottom: 14px; scroll-margin-top: 16px; }
+.help-topic h2 { margin-top: 0; }
+@media (prefers-reduced-motion: reduce) { .info-tip::after { transition: none; } }

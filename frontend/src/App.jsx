@@ -12,6 +12,8 @@ import Rules from "./features/rules/Rules.jsx";
 import AILog from "./features/ai/AILog.jsx";
 import Dues from "./features/dues/Dues.jsx";
 import Onboarding from "./features/onboarding/Onboarding.jsx";
+import EmployeesPage from "./features/pay_groups/PayGroups.jsx";
+import HelpPage, { setHelpUser } from "./shared/Help.jsx";
 
 // How each role is named where people read it (the role codes stay maker / checker).
 const ROLE_NAMES = { maker: "Finance team employee", checker: "Finance head" };
@@ -22,9 +24,11 @@ const NAV = [
   ["/", "Overview", "◎"],
   ["/data", "HR data", "⇩", 1],
   ["/months", "Payroll months", "▦", 2],
+  ["/employees", "Employees", "☷"],
   ["/dues", "Government dues", "⌛"],
   ["/rules", "Rules & settings", "§"],
   ["/ai", "AI log", "✦"],
+  ["/help", "Help", "?"],
 ];
 
 export default function App() {
@@ -40,6 +44,7 @@ function rememberedCompany() {
 }
 
 function PayrollApp({ me, signOut, route }) {
+  setHelpUser(me.user.id);  // page tips are remembered per person
   const [companies, setCompanies] = useState(null);
   const [companyId, setCompanyId] = useState(rememberedCompany);
   const [error, setError] = useState("");
@@ -87,6 +92,8 @@ function PayrollApp({ me, signOut, route }) {
   else if (parts[0] === "data") page = <DataSources company={company} me={me} />;
   else if (parts[0] === "dues") page = me.roles.includes("checker") ? <Dues company={company} me={me} /> : <Banner kind="warn">Government dues are shown to the finance head only.</Banner>;
   else if (parts[0] === "rules") page = <Rules company={company} me={me} />;
+  else if (parts[0] === "employees") page = <EmployeesPage company={company} me={me} />;
+  else if (parts[0] === "help") page = <HelpPage />;
   else if (parts[0] === "ai") page = <AILog company={company} />;
   else page = <Banner kind="warn">Page not found.</Banner>;
 

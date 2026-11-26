@@ -13,7 +13,7 @@ from .arrears import ArrearsMonth, compute_arrears
 from .components import COMPONENT_LABELS, COMPONENT_ORDER, WAGE_LABELS, CalculationError, component_label, order_components
 from .earnings import Earnings, compute_earnings, contracted_rate
 from .money import ZERO, d, to_str
-from .periods import Period
+from .periods import Period, pay_date, parse_date
 from .pf import PFResult, compute_pf
 from .professional_tax import select_pt_slab
 from .steps import STEPS, EmployeeCalc, facts
@@ -33,7 +33,7 @@ def calculate_employee(emp: dict, period: Period, versions: list[dict], company:
     calc = EmployeeCalc(emp=emp, period=period, versions=versions, company=company)
     for step in steps:
         step(calc)
-    return {
+    out = {
         "code": emp["code"],
         "name": emp.get("name", ""),
         "work_state": calc.state,
@@ -42,6 +42,9 @@ def calculate_employee(emp: dict, period: Period, versions: list[dict], company:
         "facts": facts(calc),
         "issues": calc.issues,
     }
+    if emp.get("pay_window"):
+        out["pay_window"] = emp["pay_window"]  # the person's pay group and dates, for the register and the files
+    return out
 
 
 # =========================================================================== month
@@ -78,7 +81,7 @@ def calculate_month(month_input: dict) -> dict:
         for line in _walk(r["lines"]):
             for ref in line["rules"]:
                 used[f"{ref['key']}|{ref['jurisdiction']}|{ref['version_id']}"] = ref
-    return {
+    out = {
         "engine_version": ENGINE_VERSION,
         "period": str(period),
         "company": company,
@@ -88,6 +91,32 @@ def calculate_month(month_input: dict) -> dict:
         "rules_used": sorted(used.values(), key=lambda r: (r["key"], r["jurisdiction"], r["effective_from"])),
         "issues": [{"employee": r["code"], **i} for r in results for i in r["issues"]],
     }
+    if any(r.get("pay_window") for r in results):
+        out["totals_by_group"] = totals_by_group(results)
+    return out
+
+
+def totals_by_group(results: list[dict]) -> list[dict]:
+    """The month split by pay group: people, dates, pay date and totals of each group (default group first)."""
+    groups: dict[str, dict] = {}
+    for r in results:
+        pw = r.get("pay_window") or {}
+        g = groups.setdefault(pw.get("group", ""), {
+            "group": pw.get("group", ""), "name": pw.get("group_name", ""), "default": bool(pw.get("default")),
+            "salary_from": pw.get("salary_from"), "salary_to": pw.get("salary_to"), "people": 0, "transition": 0,
+            "pay_date": pay_date(parse_date(pw["salary_to"]), int(pw["pay_day"])).isoformat() if pw.get("pay_day") else "",
+            "totals": {}})
+        g["people"] += 1
+        g["transition"] += 1 if pw.get("transition") else 0
+        if pw.get("salary_from") and pw["salary_from"] < (g["salary_from"] or pw["salary_from"]):
+            g["salary_from"] = pw["salary_from"]  # a transition starts earlier or later than the group's normal cycle
+        for key, value in r["amounts"].items():
+            if key in TOTAL_KEYS:
+                g["totals"][key] = g["totals"].get(key, ZERO) + d(value)
+    out = sorted(groups.values(), key=lambda g: (not g["default"], g["name"]))
+    for g in out:
+        g["totals"] = {k: to_str(v) for k, v in sorted(g["totals"].items())}
+    return out
 
 
 def _walk(lines):

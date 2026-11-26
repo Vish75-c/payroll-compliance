@@ -8,7 +8,7 @@ from decimal import Decimal
 from . import policies as pol
 from .explain import RuleRef
 from .money import ZERO, d, inr, round_amount, to_str
-from .periods import Period, parse_date
+from .periods import Period, Window, parse_date
 
 
 @dataclass(frozen=True)
@@ -47,6 +47,10 @@ class Earnings:
     rounding_mode: str
     lop_ref: RuleRef
     rounding_ref: RuleRef
+    cycle_refs: list[RuleRef] = field(default_factory=list)  # the pay cycle setting, when it is not the calendar month
+    attendance_text: str = ""  # e.g. " (counted 26 Oct to 25 Nov 2026)" when unpaid days follow an attendance cycle
+    basis_days: int = 0  # days in a normal pay cycle; more or fewer than the days covered in a transition period
+    period_rate: dict[str, Decimal] = field(default_factory=dict)  # pay for the days covered, before the unpaid cut
     total_cut: Decimal = ZERO
     regular_gross: Decimal = ZERO
     contracted_gross: Decimal = ZERO
@@ -56,8 +60,8 @@ class Earnings:
     capped_cuts: set[str] = field(default_factory=set)
 
 
-def contracted_rate(compensation: list[dict], period: Period, employed_from: date | None = None) -> tuple[dict[str, Decimal], str, bool]:
-    """Monthly salary by component for ``period``.
+def contracted_rate(compensation: list[dict], period: "Period | Window", employed_from: date | None = None) -> tuple[dict[str, Decimal], str, bool]:
+    """Monthly salary by component for ``period`` (a calendar month, or the dates of a shifted pay cycle).
 
     If a revision starts mid-month, each part of the month is paid at its own rate,
     weighted by calendar days. When employment starts mid-month, earlier days use the starting salary.
@@ -71,7 +75,7 @@ def contracted_rate(compensation: list[dict], period: Period, employed_from: dat
     return {code: amount / period.days for code, amount in units.items()}, note, backfilled
 
 
-def _salary_segments(compensation: list[dict], period: Period, employed_start: date,
+def _salary_segments(compensation: list[dict], period: "Period | Window", employed_start: date,
                      employed_end: date) -> tuple[list[_SalarySegment], bool]:
     """Split the month at revisions in employment, extending the first and last employed rates to its edges."""
     if not compensation:
@@ -116,12 +120,40 @@ def _salary_units(segments: list[_SalarySegment]) -> tuple[dict[str, Decimal], s
     return units, "salary changed during the month: " + ", ".join(parts)
 
 
-def _divisor(lop_payload: dict, period: Period) -> tuple[Decimal, str]:
+def _divisor(lop_payload: dict, period: Period, window: Window, basis_days: int) -> tuple[Decimal, str]:
     divisor = lop_payload.get("divisor", "days_in_month")
     if divisor == "days_in_month":
-        return Decimal(period.days), f"{period.days} days in {period.label.split()[0]}"
+        if (window.start, window.end) == (period.start, period.end):
+            return Decimal(basis_days), f"{basis_days} days in {period.label.split()[0]}"
+        if window.days != basis_days:
+            return Decimal(basis_days), f"{basis_days} days in a normal pay cycle"
+        return Decimal(basis_days), f"{basis_days} days in the pay cycle ({window.label})"
     value = d(divisor)
     return value, f"{to_str(value)} days ({lop_payload.get('source') or 'fixed by company setting'})"
+
+
+@dataclass
+class PayDates:
+    """The dates one person's month covers: from their pay group (``pay_window`` in the input), or else the company's
+    pay cycle setting (months stored before pay groups)."""
+    salary: Window
+    attendance: Window
+    basis_days: int
+    group: str = ""
+    transition: bool = False
+    refs: list[RuleRef] = field(default_factory=list)
+
+
+def pay_dates_of(emp: dict, period: Period, versions: list[dict]) -> PayDates:
+    pw = emp.get("pay_window")
+    if pw:
+        salary = Window(parse_date(pw["salary_from"]), parse_date(pw["salary_to"]))
+        attendance = Window(parse_date(pw.get("attendance_from") or pw["salary_from"]), parse_date(pw.get("attendance_to") or pw["salary_to"]))
+        return PayDates(salary, attendance, int(pw.get("basis_days") or salary.days), pw.get("group_name", ""), bool(pw.get("transition")))
+    cycle = pol.resolve_company(versions, "pay_cycle", period)
+    salary = pol.salary_window(versions, period)
+    return PayDates(salary, pol.attendance_window(versions, period), salary.days,
+                    refs=[cycle.ref] if cycle.get("mode", "calendar") != "calendar" else [])
 
 
 def compute_earnings(emp: dict, period: Period, versions: list[dict], unpaid_days) -> Earnings:
@@ -130,14 +162,27 @@ def compute_earnings(emp: dict, period: Period, versions: list[dict], unpaid_day
     method = rounding.get("method", "nearest")
     mode = rounding.get("earnings", "per_component")
 
-    days = period.days
-    employed_start = max(period.start, parse_date(emp.get("date_of_joining")) or period.start)
-    employed_end = min(period.end, parse_date(emp.get("date_of_exit")) or period.end)
+    # The dates this month pays for: the calendar month, or the person's pay group / company pay cycle.
+    dates = pay_dates_of(emp, period, versions)
+    window, attendance, basis = dates.salary, dates.attendance, dates.basis_days
+    calendar_month = (period.start, period.end)
+
+    days = window.days
+    employed_start = max(window.start, parse_date(emp.get("date_of_joining")) or window.start)
+    employed_end = min(window.end, parse_date(emp.get("date_of_exit")) or window.end)
     employed = max(0, (employed_end - employed_start).days + 1)
     not_employed = days - employed
-    segments, backfilled = _salary_segments(emp.get("compensation") or [], period, employed_start, employed_end)
+    segments, backfilled = _salary_segments(emp.get("compensation") or [], window, employed_start, employed_end)
     salary_units, rate_note = _salary_units(segments)
     rate = {code: units / days for code, units in salary_units.items()}
+    # A transition period (the first month on a new pay cycle) is paid for the days it covers: a 25-day period on a
+    # 31-day cycle is 25/31 of the month. In every other month basis == days and the pay is the monthly rate.
+    # salary_units / basis is therefore the pay for the days covered, before any unpaid cut.
+    period_exact = {code: units / basis for code, units in salary_units.items()}
+    if days != basis:
+        rate_note = f"{rate_note}; transition to the new pay cycle: {window.label}, {days} of {basis} days"
+    elif (window.start, window.end) != calendar_month:
+        rate_note = f"{rate_note}; pay cycle {window.label}"
     issues = []
     if not rate:
         issues.append({"level": "error", "message": "No salary found for this employee. Pay is zero until salary data is provided."})
@@ -154,7 +199,7 @@ def compute_earnings(emp: dict, period: Period, versions: list[dict], unpaid_day
         lop_days = max_lop
     unpaid = lop_days + not_employed
 
-    divisor, divisor_text = _divisor(lop.payload, period)
+    divisor, divisor_text = _divisor(lop.payload, period, window, basis)
     day_rate_rule = lop.get("day_rate_rounding")
 
     def cut_term(units: Decimal, unit_days: int, count: Decimal, description: str) -> _CutTerm:
@@ -185,7 +230,7 @@ def compute_earnings(emp: dict, period: Period, versions: list[dict], unpaid_day
             continue
         if unpaid == days:
             capped_salary_units += units
-            cut_exact[comp] = rate[comp]
+            cut_exact[comp] = period_exact[comp]
             continue
         if by_segment:
             terms = [cut_term(seg.rates.get(comp, ZERO), 1, Decimal(away), "days outside employment") for seg, away in outside]
@@ -200,10 +245,11 @@ def compute_earnings(emp: dict, period: Period, versions: list[dict], unpaid_day
         if day_rate_rule:
             cut_units = sum(((term.rounded_day_rate or ZERO) * term.days for term in terms), ZERO)
         cut_terms[comp] = terms
-        if cut_units * days > units * cut_divisor:
+        # The cut can never be more than the pay for the days covered (cut_units / cut_divisor > units / basis).
+        if cut_units * basis > units * cut_divisor:
             capped_cuts.add(comp)
             capped_salary_units += units
-            cut_exact[comp] = rate[comp]
+            cut_exact[comp] = period_exact[comp]
         else:
             uncapped_units += cut_units
             cut_exact[comp] = cut_units / cut_divisor
@@ -211,20 +257,21 @@ def compute_earnings(emp: dict, period: Period, versions: list[dict], unpaid_day
     cut: dict[str, Decimal] = {}
     earned: dict[str, Decimal] = {}
     if mode == "per_component":
-        for comp, amount in rate.items():
-            rate_r = round_amount(amount, method)
-            cut[comp] = min(round_amount(cut_exact[comp], method), rate_r)
-            earned[comp] = rate_r - cut[comp]
+        period_rate = {comp: round_amount(v, method) for comp, v in period_exact.items()}
+        for comp in rate:
+            cut[comp] = min(round_amount(cut_exact[comp], method), period_rate[comp])
+            earned[comp] = period_rate[comp] - cut[comp]
         total_cut = sum(cut.values(), ZERO)
-        contracted = sum((round_amount(v, method) for v in rate.values()), ZERO)
+        contracted = sum(period_rate.values(), ZERO)
         regular_gross = sum(earned.values(), ZERO)
     else:  # gross_only: components keep full precision, only the totals are rounded
-        for comp, amount in rate.items():
+        period_rate = dict(period_exact)
+        for comp in rate:
             cut[comp] = cut_exact[comp]
-            earned[comp] = amount - cut_exact[comp]
-        contracted = round_amount(sum(salary_units.values(), ZERO) / days, method)
+            earned[comp] = period_exact[comp] - cut_exact[comp]
+        contracted = round_amount(sum(salary_units.values(), ZERO) / basis, method)
         # Combine both kinds of cuts before division and rounding, just as for the salary blend.
-        cut_total = (uncapped_units * days + capped_salary_units * cut_divisor) / (cut_divisor * days)
+        cut_total = (uncapped_units * basis + capped_salary_units * cut_divisor) / (cut_divisor * basis)
         total_cut = round_amount(cut_total, method)
         regular_gross = contracted - total_cut
 
@@ -242,6 +289,10 @@ def compute_earnings(emp: dict, period: Period, versions: list[dict], unpaid_day
         earned=earned,
         rounding_mode=mode,
         lop_ref=lop.ref,
+        cycle_refs=dates.refs,
+        attendance_text=f" (counted {attendance.label})" if (attendance.start, attendance.end) != calendar_month else "",
+        basis_days=basis,
+        period_rate=period_rate,
         rounding_ref=rounding.ref,
         total_cut=total_cut,
         regular_gross=regular_gross,

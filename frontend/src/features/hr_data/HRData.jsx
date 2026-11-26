@@ -5,6 +5,7 @@ import {
   AIChip, Banner, Checks, Field, Loading, Segmented, Select, StatusChip, TableToolbar, Tabs, day, inr, matches, monthLabel, stateName,
   useAction, useLoad, usePoll, when,
 } from "../../shared/ui.jsx";
+import { PageHelp } from "../../shared/Help.jsx";
 import AgentFinder from "./AgentFinder.jsx";
 import AgentReader from "./AgentReader.jsx";
 
@@ -35,10 +36,10 @@ export function DataSources({ company, me }) {
     <div>
       <div className="topbar">
         <div>
-          <h1>HR data</h1>
+          <div className="title-row"><h1>HR data</h1><PageHelp topic="hr_data" /></div>
         </div>
       </div>
-      {!isMaker && <Banner kind="info">Only a finance team employee can read or upload HR data. You can look at what was read.</Banner>}
+      {!isMaker && <Banner kind="info">Read only: HR data is read and uploaded by the finance team.</Banner>}
       <div className="grid2">
         <div className="card">
           <div className="row between" style={{ marginBottom: 10 }}>
@@ -150,7 +151,7 @@ export function UploadFiles({ send, onUploaded, disabled, compact }) {
         <button className="primary" disabled={locked || chosen.length === 0} onClick={upload}>
           {busy ? "Reading…" : chosen.length > 1 ? `Read ${chosen.length} files` : chosen.length ? "Read file" : "Choose a file to read"}
         </button>
-        <span className="muted small">.xlsx or .csv, any column names</span>
+        <span className="muted small">.xlsx or .csv</span>
       </div>
     </div>
   );
@@ -185,9 +186,6 @@ export function AddConnector({ companyId, onAdded }) {
         <Field label="Username"><input value={form.username} onChange={set("username")} /></Field>
         <Field label="Password"><input type="password" value={form.password} onChange={set("password")} /></Field>
       </div>
-      <p className="muted small">{form.profile
-        ? "Its screens are filled in from what the system already knows about this tool. You still confirm them."
-        : "The agent will sign in, look at the menu and suggest the screens (with AI if this company allows it). You confirm them."}</p>
       <div className="row"><button className="primary" disabled={!!busy} onClick={save}>Add</button><button onClick={() => setOpen(false)}>Cancel</button></div>
     </div>
   );
@@ -246,7 +244,7 @@ export function Connector({ conn, isMaker, onChange }) {
           ))}
           {confirmed && <div className="small"><span className="chip ok">Confirmed</span> by {conn.recipe_confirmed_by?.name} on {when(conn.recipe_confirmed_at)}. Later reads go straight to these screens.</div>}
         </div>
-      ) : <p className="muted small">Not set up yet. The agent will sign in, look at the menu and suggest which screens hold employees, salary and leave.</p>}
+      ) : <p className="muted small">Screens not set up yet.</p>}
       {isMaker && (
         <div className="row" style={{ marginTop: 10 }}>
           <button disabled={!!busy} onClick={discover}>{busy === "discover" ? "Looking at the HR tool…" : hasScreens ? "Find screens again" : "Find screens"}</button>
@@ -311,7 +309,7 @@ export function JobPage({ jobId, me }) {
       <div className="topbar">
         <div>
           <a href="#/data" className="small">← HR data</a>
-          <h1>Read #{job.id}: {job.source_system}</h1>
+          <div className="title-row"><h1>Read #{job.id}: {job.source_system}</h1><PageHelp topic="hr_job" /></div>
           <div className="row"><StatusChip status={job.status} label={job.status_label} />{job.original_filename && <span className="muted">{job.original_filename}</span>}<span className="muted small">{when(job.created_at)}</span></div>
         </div>
         <div className="row">
@@ -325,7 +323,7 @@ export function JobPage({ jobId, me }) {
       {job.error && <Banner kind="bad" title="The read failed.">{job.error}</Banner>}
       {running && (job.kind === "browser"
         ? <AgentReader job={job} />
-        : <Banner kind="info">The agent is working. This page updates by itself.</Banner>)}
+        : <Banner kind="info">Reading…</Banner>)}
       {(job.stats?.checks || []).length > 0 && <div className="card"><h2>Reading problems</h2><Checks checks={job.stats.checks} /></div>}
       {job.kind === "spreadsheet" && (
         <div className="card">
@@ -338,7 +336,6 @@ export function JobPage({ jobId, me }) {
           {isMaker && !job.snapshot_id && job.status !== "done" && (
             <>
               <div className="group-label">Add another file</div>
-              <p className="muted small">Missing a list? Add it here before building the data snapshot, e.g. the leave file that came after the salary file.</p>
               <UploadFiles compact send={(fd) => api.upload(`/jobs/${job.id}/files`, fd)} onUploaded={() => reload(true)} />
             </>
           )}
@@ -357,7 +354,7 @@ export function JobPage({ jobId, me }) {
         <div className="row" style={{ marginTop: 16 }}><span className="spacer" /><button className="primary" disabled={!!busy} onClick={build}>Build data snapshot</button></div>
       )}
       {isMaker && !needsSuggestion && unconfirmed.length > 0 && (
-        <p className="muted small" style={{ marginTop: 8 }}>Not happy with the suggestion? <button className="ghost small" onClick={() => suggest(true)}>Ask again</button></p>
+        <p style={{ marginTop: 8 }}><button className="ghost small" onClick={() => suggest(true)}>Suggest again</button></p>
       )}
     </div>
   );
@@ -387,7 +384,8 @@ function TableMapping({ table, catalogue, isMaker, onSaved }) {
   const setTarget = (h, target) => {
     const next = { ...mapping, [h]: target };
     setMapping(next);
-    if (["leave.type", "leave.status"].includes(target) || ["leave.type", "leave.status"].includes(mapping[h])) refreshValueMaps(next);
+    const mapped = ["leave.type", "leave.status", "leave.start_breakdown", "leave.end_breakdown"];
+    if (mapped.includes(target) || mapped.includes(mapping[h])) refreshValueMaps(next);
   };
   const confirm = async () => {
     const out = await act("confirm", () => api.post(`/tables/${table.id}/confirm-mapping`, { mapping, value_maps: valueMaps, options: { date_order: dateOrder } }), `Mapping for ${table.name} confirmed`);
@@ -458,7 +456,7 @@ function TableMapping({ table, catalogue, isMaker, onSaved }) {
       )}
       {movedToSalary.length > 0 && (
         <p className="muted small" style={{ marginTop: 8 }}>
-          {movedToSalary.join(", ")} {movedToSalary.length > 1 ? "are" : "is"} a salary figure, so {movedToSalary.length > 1 ? "they are" : "it is"} shown with the salary data below, not here.
+          Shown with the salary data: {movedToSalary.join(", ")}
         </p>
       )}
       {(table.salary_from_employees || []).map((x) => <SalaryFromEmployees key={x.table} found={x} salaryTable={table.name} />)}
@@ -472,6 +470,19 @@ function TableMapping({ table, catalogue, isMaker, onSaved }) {
                   <span style={{ width: 160 }}>{v}</span>
                   <select disabled={!isMaker} value={g} onChange={(e) => setValueMaps({ ...valueMaps, "leave.type": { ...valueMaps["leave.type"], [v]: e.target.value } })}>
                     <option value="unpaid">Unpaid (cuts pay)</option><option value="paid">Paid (no cut)</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+          {valueMaps["leave.breakdown"] && (
+            <div>
+              <div className="group-label">Which values are a half day?</div>
+              {Object.entries(valueMaps["leave.breakdown"]).map(([v, g]) => (
+                <div key={v} className="row" style={{ marginBottom: 4 }}>
+                  <span style={{ width: 160 }}>{v}</span>
+                  <select disabled={!isMaker} value={g} onChange={(e) => setValueMaps({ ...valueMaps, "leave.breakdown": { ...valueMaps["leave.breakdown"], [v]: e.target.value } })}>
+                    <option value="half">Half day (0.5)</option><option value="full">Full day (1)</option>
                   </select>
                 </div>
               ))}
@@ -521,10 +532,7 @@ function SalaryFromEmployees({ found, salaryTable }) {
       <div className="row between">
         <div>
           <b>Also on the {found.table}: {found.columns.join(", ")}</b>
-          <div className="muted small">
-            Not used: pay is taken from the {salaryTable}, where each salary has the date it starts (needed for arrears and
-            for a change in the middle of a month). Shown here so it can be compared.
-          </div>
+          <div className="muted small">Not used for pay (pay comes from the {salaryTable})</div>
         </div>
         <button className="ghost small" onClick={() => setOpen(!open)}>{open ? "Hide" : `Show for ${found.rows.length} employees`}</button>
       </div>
@@ -559,7 +567,7 @@ export function SnapshotPage({ snapshotId, me, back }) {
       <div className="topbar">
         <div>
           <a href={back?.href || "#/data"} className="small">← {back?.label || "HR data"}</a>
-          <h1>Data snapshot #{s.id}</h1>
+          <div className="title-row"><h1>Data snapshot #{s.id}</h1><PageHelp topic="hr_snapshot" /></div>
           <div className="row">
             <StatusChip status={s.status === "approved" ? "approved_snapshot" : s.status} label={s.status_label} />
             <span className="muted">from {s.source_system} · {when(s.created_at)}</span>
@@ -579,7 +587,7 @@ export function SnapshotPage({ snapshotId, me, back }) {
         )}
       </div>
       {s.status === "approved" && <Banner kind="ok">Reviewed by {s.reviewed_by?.name} on {when(s.reviewed_at)}.{s.used_by_runs.length ? ` Used by: ${s.used_by_runs.map((r) => r.label).join(", ")}.` : ""}</Banner>}
-      {s.errors > 0 && <Banner kind="bad" title={`${s.errors} problem(s) must be fixed at the source.`}>Fix them in the HR tool or the spreadsheet and read again; the payroll cannot use data with errors.</Banner>}
+      {s.errors > 0 && <Banner kind="bad" title={`${s.errors} problem(s) must be fixed at the source.`}>Fix them in the HR tool or the file, then read again.</Banner>}
       <div className="grid2">
         <div className="card"><h2>Checks</h2><Checks checks={s.checks} /></div>
         <div className="card">
@@ -651,7 +659,7 @@ function PresenceTab({ rows, range, names }) {
   const shown = rows.filter((r) => matches(query, names[r.employee_code], r.employee_code, r.month));
   return (
     <>
-      <p className="muted small">Attendance covers {day(range.from)} to {day(range.to)}. Working days with no check-in and no approved leave are suggested on the month page; nothing is cut until a finance team employee adds them.</p>
+      <p className="muted small">Attendance covers {day(range.from)} to {day(range.to)}</p>
       <TableToolbar query={query} onQuery={setQuery} shown={shown.length} total={rows.length} noun="person-months" />
       <div className="table-wrap tall"><table>
         <thead><tr><th>Employee</th><th>Month</th><th className="num">Days present</th><th>Days of the month</th></tr></thead>

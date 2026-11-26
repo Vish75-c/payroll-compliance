@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { api } from "../../shared/api.js";
+import { PageHelp } from "../../shared/Help.jsx";
 import { go } from "../../shared/routing.js";
 import { Banner, Field, Loading, Segmented, Stat, day, inr, useAction, useLoad } from "../../shared/ui.jsx";
 
@@ -117,7 +118,7 @@ export default function Dues({ company, me }) {
     <div>
       <div className="topbar">
         <div>
-          <h1>Government dues</h1>
+          <div className="title-row"><h1>Government dues</h1><PageHelp topic="dues" /></div>
         </div>
       </div>
       {s.overdue > 0 && (
@@ -137,13 +138,8 @@ export default function Dues({ company, me }) {
           <Segmented value={filter} onChange={setFilter} options={[["open", "Still to pay"], ["paid", "Paid"], ["all", "All"]]} />
         </div>
         {data.dues.length === 0 ? (
-          <div className="empty">{filter === "open" ? "Nothing to pay. Dues appear here when a month becomes final." : "None."}
-            {filter === "open" && <> Months are on <a href="#/months">Payroll months</a>.</>}</div>
+          <div className="empty">{filter === "open" ? "Nothing to pay." : "None."}</div>
         ) : <DuesTable dues={data.dues} canRecord={canRecord} onChange={reload} />}
-        <p className="muted small" style={{ marginTop: 10 }}>
-          Due dates come from the rule each month used (TDS by the 7th of the next month, 30 April for March; PF and ESI by the 15th; professional tax by the state's date), so a rule change moves them.
-          Every payment recorded or undone is kept in that month's history.
-        </p>
       </div>
     </div>
   );

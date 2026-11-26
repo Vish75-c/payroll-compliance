@@ -11,10 +11,11 @@ from datetime import date, timedelta
 from django.db import transaction
 
 from payroll_engine import policies as engine_policies
-from payroll_engine.periods import Period
+from payroll_engine.periods import Period, Window
 
 from ...shared.permissions import RuleViolation, require_role
 from ..rules.policies import versions_for
+from . import cycle
 from .events import record
 from .models import AbsenceDismissal, ChangeRequest, PayrollRun
 
@@ -76,25 +77,36 @@ def describe(dates: list[date]) -> str:
 def possible_absences(run: PayrollRun) -> dict:
     data = run.snapshot.data
     period = run.period_obj
+    # Each person's unpaid days are counted over their own pay group's dates; the checks below look at all of them.
+    people = cycle.month_windows(run.company, period, data["employees"])
+    window = Window(min((w.attendance.start for w in people.values()), default=period.start),
+                    max((w.attendance.end for w in people.values()), default=period.end))
     covered = data.get("presence_range")
     if not data.get("presence") or not covered:
         return {"status": "no_attendance", "absences": [], "no_check_in": [], "message":
                 "The HR data in use has no attendance. Upload an attendance file (Employee, Date…) with the HR data to "
                 "see days with no check-in and no approved leave."}
-    first = max(period.start, date.fromisoformat(covered["from"]))
-    last = min(period.end, date.fromisoformat(covered["to"]))
+    first = max(window.start, date.fromisoformat(covered["from"]))
+    last = min(window.end, date.fromisoformat(covered["to"]))
     covered_text = f"{date.fromisoformat(covered['from']):%d %b %Y} to {date.fromisoformat(covered['to']):%d %b %Y}"
     if first > last:
         return {"status": "not_this_month", "absences": [], "no_check_in": [],
-                "message": f"The attendance in the HR data covers {covered_text}, not {period.label}."}
+                "message": f"The attendance in the HR data covers {covered_text}, not {cycle.month_text(window, period)}."}
     calendar = _calendar(run)
     off = {WEEKDAYS.index(d) for d in calendar.get("weekly_off", [])}
     holidays = {date.fromisoformat(h) for h in calendar.get("holidays", [])}
 
-    present: dict[str, set[int]] = {}
+    # Days with a check-in, as dates: an attendance cycle such as 26 Oct to 25 Nov spans two calendar months.
+    months = set()
+    m = Period.of(window.start)
+    while m <= Period.of(window.end):
+        months.add(str(m))
+        m = m.next()
+    present: dict[str, set[date]] = {}
     for row in data["presence"]:
-        if row["month"] == str(period):
-            present.setdefault(row["employee_code"], set()).update(row["days"])
+        if row["month"] in months:
+            m = Period.parse(row["month"])
+            present.setdefault(row["employee_code"], set()).update(date(m.year, m.month, day) for day in row["days"])
     on_leave: dict[str, set[date]] = {}
     for row in data.get("leave", []):  # only leave that counts (approved) is in the data; paid or unpaid
         start, end = date.fromisoformat(row["start_date"]), date.fromisoformat(row["end_date"])
@@ -114,19 +126,20 @@ def possible_absences(run: PayrollRun) -> dict:
         employed = [e for e in data["employees"] if e["code"] in present
                     and (not e.get("date_of_joining") or e["date_of_joining"] <= day.isoformat())
                     and (not e.get("date_of_exit") or e["date_of_exit"] >= day.isoformat())]
-        if len(employed) >= 5 and sum(1 for e in employed if day.day in present[e["code"]]) < CLOSED_SHARE * len(employed):
+        if len(employed) >= 5 and sum(1 for e in employed if day in present[e["code"]]) < CLOSED_SHARE * len(employed):
             closed.add(day)
 
     # Working days of the month the attendance does not reach (a file ending on Friday the 29th before a weekend
     # still covers the month).
-    uncovered = [d for d in _days(period.start, period.end)
+    uncovered = [d for d in _days(window.start, window.end)
                  if not first <= d <= last and d.weekday() not in off and d not in holidays]
 
     absences, no_check_in, skipped = [], [], []
     for emp in data["employees"]:
         code = emp["code"]
-        start = max(first, date.fromisoformat(emp["date_of_joining"])) if emp.get("date_of_joining") else first
-        end = min(last, date.fromisoformat(emp["date_of_exit"])) if emp.get("date_of_exit") else last
+        own = people[code].attendance
+        start = max(first, own.start, date.fromisoformat(emp["date_of_joining"])) if emp.get("date_of_joining") else max(first, own.start)
+        end = min(last, own.end, date.fromisoformat(emp["date_of_exit"])) if emp.get("date_of_exit") else min(last, own.end)
         if start > end:
             continue  # not employed while the attendance runs
         if code in monthly_figure or code in replaced:
@@ -141,7 +154,7 @@ def possible_absences(run: PayrollRun) -> dict:
             no_check_in.append({"employee_code": code, "name": emp.get("name", code), "working_days": len(expected),
                                 "from": start.isoformat(), "to": end.isoformat()})
             continue
-        missing = [d for d in expected if d.day not in present[code] and d not in handled.get(code, set())
+        missing = [d for d in expected if d not in present[code] and d not in handled.get(code, set())
                    and d not in dismissed.get(code, set())]
         for group in _runs(missing, working):
             absences.append({"employee_code": code, "name": emp.get("name", code), "dates": [d.isoformat() for d in group],
@@ -173,8 +186,9 @@ def dismiss(run: PayrollRun, user, employee_code: str, dates: list[str], reason:
         days = sorted({date.fromisoformat(str(d)) for d in dates})
     except ValueError:
         raise RuleViolation("Could not read the dates.") from None
-    if not days or not all(period.start <= d <= period.end for d in days):
-        raise RuleViolation(f"Give the dates, all within {period.label}.")
+    window = cycle.window_for(run.company, period, employee_code, run.snapshot.data).attendance
+    if not days or not all(window.start <= d <= window.end for d in days):
+        raise RuleViolation(f"Give the dates, all within {cycle.month_text(window, period)}.")
     emp = next((e for e in run.snapshot.data["employees"] if e["code"] == employee_code), None)
     if not emp:
         raise RuleViolation("Pick an employee from this month's HR data.")

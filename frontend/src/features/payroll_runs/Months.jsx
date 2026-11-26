@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { api } from "../../shared/api.js";
+import { PageHelp } from "../../shared/Help.jsx";
 import { go } from "../../shared/routing.js";
-import { Banner, Field, Loading, StatusChip, inr, useAction, useLoad, when } from "../../shared/ui.jsx";
+import { Banner, Field, Loading, StatusChip, cycleHint, inr, useAction, useLoad, when } from "../../shared/ui.jsx";
 
 export default function Months({ company, me }) {
   const runs = useLoad(() => api.get(`/companies/${company.id}/runs`), [company.id]);
@@ -30,13 +31,13 @@ export default function Months({ company, me }) {
   };
   return (
     <div>
-      <div className="topbar"><div><h1>Payroll months</h1></div></div>
+      <div className="topbar"><div className="title-row"><h1>Payroll months</h1><PageHelp topic="months" /></div></div>
       {isMaker && (
         <div className="card">
           <h2>Open a month</h2>
           {approved.length === 0 && <Banner kind="warn">First get HR data and mark it as reviewed on the <a href="#/data">HR data</a> page.</Banner>}
           <div className="row" style={{ alignItems: "flex-end" }}>
-            <Field label="Month"><input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} /></Field>
+            <Field label="Month" note={cycleHint(preset.data?.cycle)}><input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} /></Field>
             <Field label="Days for one day's pay">
               <input type="number" min="1" max="31" style={{ width: 90 }} value={dayCount} onChange={(e) => setDays({ ...days, [period]: e.target.value })} />
             </Field>

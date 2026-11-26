@@ -9,16 +9,17 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from payroll_engine.money import d, round_amount, to_str
-from payroll_engine.periods import Period, overlap_days
+from payroll_engine.periods import Period, Window, overlap_days
 
 from .canonical import COMP_COMPONENTS, IGNORE, MONTH_TARGET_PREFIX, is_valid_target, target_info
 from .values import (
     ValueError_,
     guess_approved,
+    guess_half,
     guess_unpaid,
     is_blank,
     normalize_text,
@@ -68,6 +69,10 @@ def default_value_maps(rows: list[dict], mapping: dict[str, str]) -> dict:
     if "leave.status" in by_target:
         values = sorted({normalize_text(r.get(by_target["leave.status"], "")) for r in rows} - {""})
         out["leave.status"] = {v: ("count" if guess_approved(v) else "skip") for v in values}
+    breakdown = [by_target[t] for t in ("leave.start_breakdown", "leave.end_breakdown") if t in by_target]
+    if breakdown:
+        values = sorted({normalize_text(r.get(h, "")) for r in rows for h in breakdown} - {""})
+        out["leave.breakdown"] = {v: ("half" if guess_half(v) else "full") for v in values}
     return out
 
 
@@ -124,6 +129,7 @@ class _Collector:
         self.presence_dates: set[str] = set()  # every date in the attendance read, whoever it belongs to
         self.untyped_leave: dict[str, int] = {}  # table -> leave rows with no type
         self.split_rows: dict[str, int] = {}  # table -> salary rows given only as a total, split by the structure
+        self.work_calendar: dict = {"weekly_off": ["saturday", "sunday"], "holidays": []}  # to leave off-days out of a leave
 
     def check(self, level, code, message, **detail):
         self.checks.append({"level": level, "code": code, "message": message, **({"detail": detail} if detail else {})})
@@ -134,7 +140,7 @@ def revision_key(code: str, effective_from, components: dict) -> str:
 
 
 def build_snapshot(tables: list[dict], salary_structure: dict, first_seen: date,
-                   seen_before: dict[str, str] | None = None) -> tuple[dict, list[dict]]:
+                   seen_before: dict[str, str] | None = None, work_calendar: dict | None = None) -> tuple[dict, list[dict]]:
     """``tables``: [{"name", "headers", "rows", "mapping", "value_maps", "options", "read_info", "source_url"}].
 
     ``seen_before`` maps a salary record (see ``revision_key``) to the date an earlier read first
@@ -143,6 +149,7 @@ def build_snapshot(tables: list[dict], salary_structure: dict, first_seen: date,
     """
     seen_before = seen_before or {}
     c = _Collector()
+    c.work_calendar = work_calendar or {"weekly_off": ["saturday", "sunday"], "holidays": []}
     roster = [t for t in tables if t.get("dataset_hint") == "employees" or _has_employee_attributes(t["mapping"])]
     roster_ids = {id(t) for t in (roster or tables)}
     for table in tables:
@@ -245,7 +252,7 @@ def build_snapshot(tables: list[dict], salary_structure: dict, first_seen: date,
             emp["name"] = code
         employees.append({k: emp.get(k) for k in (
             "code", "name", "work_state", "gender", "date_of_joining", "date_of_exit", "pf_applicable", "esi_applicable",
-            "department", "designation") if emp.get(k) not in (None, "")})
+            "department", "designation", "pay_group") if emp.get(k) not in (None, "")})
 
     _completeness(c, tables, employees, compensation, leave, attendance)
     data = {
@@ -463,11 +470,13 @@ def _read_table(c: _Collector, table: dict, structure: dict, roster: bool):
             days = values.get("leave.days")
             if days is not None and d(days) > calendar_days:
                 c.check("warning", "leave_days", f"{where}: {days} days of leave between {start} and {end} ({calendar_days} calendar days).")
+            day_values = _day_values(c, values, value_maps, start, end, leave_type, days, where)
             c.leave.append({
                 "_key": key,
                 "start_date": start,
                 "end_date": end,
-                "days": days if days is not None else str(calendar_days),
+                "days": days if days is not None else (to_str(sum((x["value"] for x in day_values), Decimal(0))) if day_values else str(calendar_days)),
+                **({"day_values": [{"date": x["date"], "value": to_str(x["value"])} for x in day_values]} if day_values else {}),
                 "leave_type": leave_type,
                 "status": status,
                 "unpaid": unpaid,
@@ -493,6 +502,51 @@ def _read_table(c: _Collector, table: dict, structure: dict, roster: bool):
             parsed = parse("number", raw, f"{where}, column '{header}'")
             if parsed is not None:
                 c.attendance.append({"_key": key, "period": period, "unpaid_days": parsed, "source": f"{where}, column '{header}'"})
+
+
+WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+def _day_values(c: _Collector, values: dict, value_maps: dict, start: str, end: str, leave_type: str, days, where: str) -> list[dict]:
+    """How much of each date a leave takes, the way Horilla counts it: every day 1, and the first or last day 0.5 when
+    it is a half (First Half / Second Half); a one-day leave is 0.5 if either side is a half. Returned only when it
+    differs from "every calendar day is a full day", so months split by date instead of by share. Empty when the
+    file's own number of days cannot be matched (the old split by share is used, with a warning)."""
+    def half(field):
+        raw = values.get(field)
+        if raw in (None, ""):
+            return False
+        decision = (value_maps.get("leave.breakdown") or {}).get(normalize_text(raw))
+        return decision == "half" if decision else guess_half(raw)
+
+    first, last = date.fromisoformat(start), date.fromisoformat(end)
+    dates = [first + timedelta(days=i) for i in range((last - first).days + 1)]
+    out = [{"date": x.isoformat(), "value": Decimal(1)} for x in dates]
+    start_half, end_half = half("leave.start_breakdown"), half("leave.end_breakdown")
+    if len(out) == 1:
+        if start_half or end_half or values.get("leave.half_day") is True or ("half" in leave_type.lower() and not days):
+            out[0]["value"] = Decimal("0.5")
+    else:
+        if start_half:
+            out[0]["value"] = Decimal("0.5")
+        if end_half:
+            out[-1]["value"] = Decimal("0.5")
+    total = sum((x["value"] for x in out), Decimal(0))
+    given = d(days) if days not in (None, "") else total
+    if given < total:
+        # The HR tool left out weekly offs or holidays (Horilla does for some leave types): leave them out here too.
+        off = {WEEKDAY_NAMES.index(w) for w in c.work_calendar.get("weekly_off", []) if w in WEEKDAY_NAMES}
+        holidays = set(c.work_calendar.get("holidays", []))
+        kept = [x for x in out if date.fromisoformat(x["date"]).weekday() not in off and x["date"] not in holidays]
+        if sum((x["value"] for x in kept), Decimal(0)) == given:
+            out, total = kept, given
+    if given != total:
+        c.check("warning", "leave_days_by_date", f"{where}: {to_str(given)} days of leave from {start} to {end} could not be "
+                f"matched to dates; a leave across two months is split between them by its share of the days.")
+        return []
+    if all(x["value"] == 1 for x in out) and len(out) == len(dates):
+        return []  # every calendar day a full day: splitting by share gives the same
+    return out
 
 
 def _completeness(c: _Collector, tables, employees, compensation, leave, attendance):
@@ -602,21 +656,26 @@ def _periods_between(start: str, end: str):
         p = p.next()
 
 
-def unpaid_days_for(data: dict, code: str, period: Period) -> Decimal:
+def unpaid_days_for(data: dict, code: str, period: Period, window: Window | None = None) -> Decimal:
     """Unpaid days of one employee in one month.
 
     A per-month figure ("attendance") wins when the source gives one; otherwise unpaid leave
-    records are added up. Leave that spans months is split by calendar days.
+    records are added up. Leave that spans months is split by calendar days. ``window`` is the
+    attendance cycle of the month when it is not the calendar month (e.g. 26 Oct to 25 Nov).
     """
     explicit = [r for r in data.get("attendance", []) if r["employee_code"] == code and r["period"] == str(period)]
     if explicit:
         return sum((d(r["unpaid_days"]) for r in explicit), Decimal(0))
     total = Decimal(0)
+    window = window or period
     for r in data.get("leave", []):
         if r["employee_code"] != code or not r["unpaid"]:
             continue
+        if r.get("day_values"):  # a half day stays on its own date
+            total += sum((d(x["value"]) for x in r["day_values"] if window.start <= date.fromisoformat(x["date"]) <= window.end), Decimal(0))
+            continue
         start, end = date.fromisoformat(r["start_date"]), date.fromisoformat(r["end_date"])
-        inside = overlap_days(start, end, period)
+        inside = overlap_days(start, end, window)
         if not inside:
             continue
         span = (end - start).days + 1

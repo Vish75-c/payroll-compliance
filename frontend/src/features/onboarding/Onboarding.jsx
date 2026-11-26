@@ -3,12 +3,14 @@ import { api } from "../../shared/api.js";
 import { go } from "../../shared/routing.js";
 import { Banner, Checks, Field, Loading, StatusChip, inr, monthLabel, useAction, useLoad } from "../../shared/ui.jsx";
 import { AddConnector, Connector, UploadFiles } from "../hr_data/HRData.jsx";
+import { PayCycleFields } from "../rules/RuleForms.jsx";
+import { PageHelp } from "../../shared/Help.jsx";
 import { OTHER_OFFICE, PF_OFFICES, splitPfCode } from "./pfOffices.js";
 
 // Where the company is comes from the server (worked out from what exists), so the steps can be left and resumed.
 const STEPS = [
   ["company", "Company details", "Name, state, registration numbers, first payroll month"],
-  ["settings", "Pay settings", "Days for one day's pay, salary split, PF, government rules, AI"],
+  ["settings", "Pay settings", "Pay cycle, days for one day's pay, salary split, PF, government rules, AI"],
   ["hr_data", "HR data", "Connect the HR tool or upload its exports"],
   ["data_checked", "Check the data", "Read the checks and mark the data as right"],
   ["opening_balances", "Opening balances", "Pay and TDS earlier in the year"],
@@ -42,7 +44,7 @@ function NewCompany({ onCreated }) {
   const states = useLoad(() => api.get("/states"), []);
   return (
     <div>
-      <div className="topbar"><div><h1>Add a company</h1></div></div>
+      <div className="topbar"><div className="title-row"><h1>Add a company</h1><PageHelp topic="onboarding.company" /></div></div>
       <div className="wizard">
         <StepList active="company" steps={null} firstMonth="" onPick={() => {}} />
         <div className="card">
@@ -70,7 +72,7 @@ function StepList({ active, steps, firstMonth, onPick }) {
           <li key={key} className={`${active === key ? "on" : ""} ${ok ? "ok" : ""}`}>
             <button type="button" disabled={!steps} onClick={() => onPick(key)}>
               <span className="dot">{ok ? "✓" : i + 1}</span>
-              <span><b>{title}</b><span className="muted small">{hint}</span></span>
+              <span><b>{title}</b></span>
             </button>
           </li>
         );
@@ -94,10 +96,9 @@ function Wizard({ companyId, onCompanyChanged }) {
   const allDone = STEPS.every(([k]) => done(steps, k, firstMonth));
   return (
     <div>
-      <div className="topbar"><div><h1>Set up {company.name}</h1>
-        <p className="muted">First payroll month here: <b>{monthLabel(firstMonth)}</b>. Each step is saved as you go; the list shows what is done.</p></div></div>
-      {allDone && <Banner kind="ok" title={`${company.name} is set up.`} action={<button className="primary" onClick={() => go(`/runs/${steps.first_month.run_id}`)}>Open {monthLabel(steps.first_month.period)}</button>}>
-        From here each month works like any other: review the data, add changes, calculate, submit, approve.</Banner>}
+      <div className="topbar"><div><div className="title-row"><h1>Set up {company.name}</h1><PageHelp topic={`onboarding.${current}`} /></div>
+        <p className="muted">First payroll month: <b>{monthLabel(firstMonth)}</b></p></div></div>
+      {allDone && <Banner kind="ok" title={`${company.name} is set up.`} action={<button className="primary" onClick={() => go(`/runs/${steps.first_month.run_id}`)}>Open {monthLabel(steps.first_month.period)}</button>} />}
       <div className="wizard">
         <StepList active={current} steps={steps} firstMonth={firstMonth} onPick={setActive} />
         <div className="card">
@@ -174,7 +175,7 @@ function CompanyForm({ initial, states, firstMonth, submitLabel, onSave }) {
             <option value={OTHER_OFFICE}>Other office (type its 5 letters)…</option>
           </select>
         </Field>
-        <Field label="PF establishment number" hint={pfCode && pf.number ? `PF establishment code: ${pfCode}` : "7 digits, and a 3-digit extension (usually 000)"}>
+        <Field label="PF establishment number" hint="7 digits, and a 3-digit extension (usually 000)" note={pfCode && pf.number ? `PF establishment code: ${pfCode}` : undefined}>
           <div className="pf-code">
             {pf.pick === OTHER_OFFICE && <input aria-label="Office letters" placeholder="ABCDE" maxLength={5} value={pf.office}
               onChange={(e) => setPf({ ...pf, office: e.target.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 5) })} />}
@@ -182,7 +183,9 @@ function CompanyForm({ initial, states, firstMonth, submitLabel, onSave }) {
             <input aria-label="Extension" inputMode="numeric" placeholder="000" value={pf.ext} onChange={digits("ext", 3)} disabled={!pf.pick} />
           </div>
         </Field>
-        <Field label="Salary paid on (day of next month)" hint="Optional, e.g. 1"><input type="number" min="1" max="31" value={f.pay_day} onChange={set("pay_day")} /></Field>
+        <Field label="Salary paid on (day of the month)" hint="Optional, e.g. 7: the first such day after the pay month ends. Sets when TDS is due. By law, within 7 days after the month ends (10 with 1,000+ workers).">
+          <input type="number" min="1" max="31" value={f.pay_day} onChange={set("pay_day")} />
+        </Field>
       </div>
       <div className="row"><button className="primary" disabled={!!busy || !f.name || !f.state || !first || !pfComplete} onClick={save}>{busy ? "Saving…" : submitLabel}</button></div>
     </div>
@@ -219,21 +222,26 @@ function ProfessionalTaxNote({ pt }) {
 
 function SettingsStep({ company, firstMonth, onDone, onCompanyChanged, professionalTax }) {
   const policies = useLoad(() => api.get(`/companies/${company.id}/policies`), [company.id]);
+  // The cycle chosen here is the default pay group's ("Everyone else"); other groups are added on Rules & settings.
+  const groups = useLoad(() => api.get(`/companies/${company.id}/pay-groups`), [company.id]);
   const [f, setF] = useState(null);
   const [busy, act] = useAction();
   useEffect(() => {
-    if (!policies.data || f) return;
+    if (!policies.data || !groups.data || f) return;
     const lop = latestPayload(policies.data.groups, "lop") || { divisor: "days_in_month" };
     const split = latestPayload(policies.data.groups, "salary_structure")?.components || [];
     const share = (code, fallback) => String(Math.round(Number(split.find((c) => c.code === code)?.share ?? fallback) * 100));
     const pf = latestPayload(policies.data.groups, "pf_policy") || { wage_base: "capped" };
     const labour = latestPayload(policies.data.groups, "labour_codes") || { apply: "as_government" };
+    const now = groups.data.groups.find((g) => g.default)?.now;
+    const cycle = now ? { mode: now.mode, start_day: now.start_day } : { mode: "calendar", start_day: 1 };
     setF({ days: lop.divisor === "days_in_month" ? "days_in_month" : String(lop.divisor), basic: share("basic", 0.5), hra: share("hra", 0.2),
-      pf: pf.wage_base, labour: labour.apply, ai: company.ai_mode, saved: { lop, split, pf, labour } });
-  }, [policies.data, f, company.ai_mode]);
-  if (!f) return <Loading error={policies.error} />;
+      pf: pf.wage_base, labour: labour.apply, ai: company.ai_mode, cycle, saved: { lop, split, pf, labour, cycle } });
+  }, [policies.data, groups.data, f, company.ai_mode]);
+  if (!f) return <Loading error={policies.error || groups.error} />;
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const fixed = f.days !== "days_in_month";
+  const cycleOk = f.cycle.mode === "calendar" || (Number.isInteger(Number(f.cycle.start_day)) && f.cycle.start_day >= 2 && f.cycle.start_day <= 28);
   const special = 100 - Number(f.basic || 0) - Number(f.hra || 0);
   const save = async () => {
     const from = fyStart(firstMonth);
@@ -242,11 +250,18 @@ function SettingsStep({ company, firstMonth, onDone, onCompanyChanged, professio
       { code: "special_allowance", share: "remainder" }] };
     const pf = { wage_base: f.pf, employer_wage_base: "same", arrears_contribution: "recompute_delta" };
     const labour = { apply: f.labour };
-    const changed = [["lop", lop, f.saved.lop], ["salary_structure", structure, { components: f.saved.split }], ["pf_policy", pf, f.saved.pf], ["labour_codes", labour, f.saved.labour]]
+    const cycle = f.cycle.mode === "calendar" ? { mode: "calendar", start_day: 1 } : { mode: f.cycle.mode, start_day: Number(f.cycle.start_day) };
+    const cycleChanged = JSON.stringify(cycle) !== JSON.stringify({ mode: f.saved.cycle.mode, start_day: f.saved.cycle.mode === "calendar" ? 1 : Number(f.saved.cycle.start_day) });
+    const changed = [["lop", lop, f.saved.lop], ["salary_structure", structure, { components: f.saved.split }],
+      ["pf_policy", pf, f.saved.pf], ["labour_codes", labour, f.saved.labour]]
       .filter(([, now, was]) => JSON.stringify(now) !== JSON.stringify(was) || !policies.data.groups.find((g) => g.scope === "company" && g.key === "lop")?.versions.length);
     const ok = await act("settings", async () => {
       for (const [key, payload] of changed) {
         await api.post(`/companies/${company.id}/policies`, { key, payload, effective_from: from, note: "Set when the company was added" });
+      }
+      if (cycleChanged) {
+        const group = groups.data.groups.find((g) => g.default);
+        await api.post(`/pay-groups/${group.id}/cycles`, { ...cycle, note: "Set when the company was added" });
       }
       if (f.ai !== company.ai_mode) onCompanyChanged(await api.patch(`/companies/${company.id}`, { ai_mode: f.ai }));
       return true;
@@ -257,9 +272,9 @@ function SettingsStep({ company, firstMonth, onDone, onCompanyChanged, professio
     <div className="stack">
       <h2>2. Pay settings</h2>
       <ProfessionalTaxNote pt={professionalTax} />
-      <p className="muted">Saved as dated company settings from {fyStart(firstMonth)}. They can be changed later on Rules &amp; settings; each month can also set its own day count when it is opened.</p>
       <div className="grid2">
-        <Field label="One day's pay = monthly pay ÷" hint="Used for unpaid days and for days before someone joined.">
+        <PayCycleFields v={f.cycle} onChange={(cycle) => setF({ ...f, cycle })} />
+        <Field label="One day's pay = monthly pay ÷" hint={`Used for unpaid days and for days before someone joined.${!fixed && f.cycle.mode === "shifted" ? " With a shifted cycle, the days in the cycle." : ""}`}>
           <select value={fixed ? "fixed" : "days_in_month"} onChange={(e) => setF({ ...f, days: e.target.value === "fixed" ? "30" : "days_in_month" })}>
             <option value="days_in_month">the days in that month (28 to 31)</option>
             <option value="fixed">a fixed number of days</option>
@@ -267,7 +282,7 @@ function SettingsStep({ company, firstMonth, onDone, onCompanyChanged, professio
         </Field>
         {fixed && <Field label="Number of days" hint="26 (working days) and 30 are common"><input type="number" min="1" max="31" value={f.days} onChange={set("days")} /></Field>}
         <Field label="Basic pay, % of monthly salary" hint="Splits a salary given as one amount"><input type="number" min="1" max="100" value={f.basic} onChange={set("basic")} /></Field>
-        <Field label="HRA, % of monthly salary" hint={`Special allowance gets the rest: ${special}%`}><input type="number" min="0" max="100" value={f.hra} onChange={set("hra")} /></Field>
+        <Field label="HRA, % of monthly salary" note={`Special allowance gets the rest: ${special}%`}><input type="number" min="0" max="100" value={f.hra} onChange={set("hra")} /></Field>
         <Field label="PF is worked out on">
           <select value={f.pf} onChange={set("pf")}>
             <option value="capped">basic pay up to ₹15,000 (the legal minimum)</option>
@@ -290,7 +305,7 @@ function SettingsStep({ company, firstMonth, onDone, onCompanyChanged, professio
         </Field>
       </div>
       {special < 0 && <Banner kind="bad">Basic and HRA add up to more than 100%.</Banner>}
-      <div className="row"><button className="primary" disabled={!!busy || special < 0 || (fixed && !(Number(f.days) >= 1 && Number(f.days) <= 31))} onClick={save}>{busy ? "Saving…" : "Save and continue"}</button></div>
+      <div className="row"><button className="primary" disabled={!!busy || special < 0 || !cycleOk || (fixed && !(Number(f.days) >= 1 && Number(f.days) <= 31))} onClick={save}>{busy ? "Saving…" : "Save and continue"}</button></div>
     </div>
   );
 }
@@ -301,7 +316,6 @@ function HRDataStep({ companyId, steps, onChange, onDone }) {
   return (
     <div className="stack">
       <h2>3. HR data</h2>
-      <p className="muted">Employees, salaries and leave, from the HR tool's screens or its exports. You confirm what each column means once; later reads reuse it.</p>
       {job.done && (
         <Banner kind={job.status === "ready" ? "ok" : "info"} title={`Latest read #${job.job_id}:`}
           action={<button className="primary" onClick={() => go(`/data/job/${job.job_id}`)}>{job.status === "ready" ? "Open the read" : "Continue with it"}</button>}>
@@ -333,12 +347,11 @@ function CheckStep({ steps, onDone }) {
   return (
     <div className="stack">
       <h2>4. Check the data</h2>
-      <p className="muted">{s.employee_count} employees from {s.source_system}. Warnings often change pay (leave with no type counts as unpaid, a missing joining date pays a full month), so read them.</p>
+      <p className="muted">{s.employee_count} employees from {s.source_system}</p>
       <Checks checks={s.checks.filter((c) => c.level !== "ok").concat(s.checks.filter((c) => c.level === "ok"))} />
       {s.status === "approved"
         ? <div className="row"><span className="chip ok">Marked as right</span><button className="primary" onClick={onDone}>Continue</button></div>
-        : <div className="row"><button className="primary" onClick={() => go(`/data/snapshot/${s.id}`)}>Review and mark as right</button>
-          <span className="muted small">Opens the data, with every employee, salary and leave row.</span></div>}
+        : <div className="row"><button className="primary" onClick={() => go(`/data/snapshot/${s.id}`)}>Review and mark as right</button></div>}
     </div>
   );
 }
@@ -366,7 +379,6 @@ function OpeningStep({ companyId, firstMonth, steps, onDone }) {
   return (
     <div className="stack">
       <h2>5. Opening balances</h2>
-      <p className="muted">Payroll starts here in {monthLabel(firstMonth)}, so the old payroll already paid salaries and deducted TDS from April. Enter each person's totals so far; TDS for the rest of the year is spread from them. A new upload replaces the earlier one.</p>
       <div className="row" key={round}>
         <a className="button" href={`/api/companies/${companyId}/opening-balances?template=1`}>Download the template</a>
         <input type="file" accept=".csv,.xlsx" onChange={(e) => setFile(e.target.files[0] || null)} />
@@ -400,7 +412,7 @@ function FirstMonthStep({ companyId, firstMonth, steps }) {
   const [busy, act] = useAction();
   if (steps.first_month.done) return (
     <div className="stack"><h2>6. First month</h2>
-      <Banner kind="ok" title={`${monthLabel(steps.first_month.period)} is open.`}>Review the data, calculate, and send it for approval like any month.</Banner>
+      <Banner kind="ok" title={`${monthLabel(steps.first_month.period)} is open.`} />
       <div className="row"><button className="primary" onClick={() => go(`/runs/${steps.first_month.run_id}`)}>Open {monthLabel(steps.first_month.period)}</button></div></div>
   );
   if (!steps.data_checked.done) return <><h2>6. First month</h2><Banner kind="warn">Mark the HR data as right first (step 4).</Banner></>;

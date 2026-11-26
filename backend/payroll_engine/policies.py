@@ -18,7 +18,7 @@ from decimal import Decimal
 
 from .explain import RuleRef
 from .money import ROUNDING_METHODS, d
-from .periods import Period, parse_date
+from .periods import Period, Window, cycle_window, parse_date
 
 STATUTORY = "statutory"
 COMPANY = "company"
@@ -63,6 +63,10 @@ COMPANY_DEFAULTS: dict[str, dict] = {
     "labour_codes": {"apply": "as_government"},
     # Used only to suggest possible unpaid absences from attendance; never in a calculation.
     "work_calendar": {"weekly_off": ["saturday", "sunday"], "holidays": []},
+    # Which dates a pay month covers. "calendar": 1st to last day. "attendance_cutoff": salary for the calendar
+    # month, unpaid days counted from ``start_day`` of the month before. "shifted": salary and unpaid days both
+    # counted from ``start_day`` of the month before (with 26, November is 26 Oct to 25 Nov).
+    "pay_cycle": {"mode": "calendar", "start_day": 1},
 }
 
 COMPANY_KEYS = {
@@ -76,7 +80,10 @@ COMPANY_KEYS = {
     "salary_structure": "Salary split for new salaries",
     "work_calendar": "Working days and holidays (for attendance)",
     "labour_codes": "Government rules: Labour Codes",
+    "pay_cycle": "Pay cycle",
 }
+
+PAY_CYCLE_MODES = ["calendar", "attendance_cutoff", "shifted"]
 
 
 @dataclass
@@ -164,6 +171,22 @@ def resolve_company(versions, key, period) -> Resolved:
     merged = copy.deepcopy(default)
     merged.update(found.payload)
     return Resolved(key=key, payload=merged, ref=found.ref)
+
+
+def _cycle_window(versions, period: Period, modes: tuple[str, ...]) -> Window:
+    cycle = resolve_company(versions, "pay_cycle", period)
+    day = int(cycle.get("start_day") or 1) if cycle.get("mode") in modes else 1
+    return cycle_window(period, day)
+
+
+def salary_window(versions, period: Period) -> Window:
+    """The dates whose salary a pay month pays: the calendar month unless the whole cycle is shifted."""
+    return _cycle_window(versions, period, ("shifted",))
+
+
+def attendance_window(versions, period: Period) -> Window:
+    """The dates whose unpaid days a pay month counts: the calendar month only under the calendar cycle."""
+    return _cycle_window(versions, period, ("attendance_cutoff", "shifted"))
 
 
 # --------------------------------------------------------------------------- validation
@@ -367,6 +390,19 @@ def _v_arrears_policy(p, e):
     _num(p, "lookback_months", e, required=False, minimum=1, maximum=36)
 
 
+def _v_pay_cycle(p, e):
+    mode = p.get("mode")
+    if mode not in PAY_CYCLE_MODES:
+        e.append(f"'mode' must be one of {', '.join(PAY_CYCLE_MODES)}")
+        return
+    if mode == "calendar":
+        _num(p, "start_day", e, required=False, minimum=1, maximum=1)
+        return
+    day = _num(p, "start_day", e, minimum=2, maximum=28)
+    if day is not None and day != day.to_integral_value():
+        e.append("'start_day' must be a whole day of the month")
+
+
 def _v_labour_codes(p, e):
     if p.get("apply") not in ("as_government", "not_applied"):
         e.append("'apply' must be 'as_government' or 'not_applied'")
@@ -426,6 +462,7 @@ _VALIDATORS = {
     "salary_structure": _v_salary_structure,
     "work_calendar": _v_work_calendar,
     "labour_codes": _v_labour_codes,
+    "pay_cycle": _v_pay_cycle,
 }
 
 
