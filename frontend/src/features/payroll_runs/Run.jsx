@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api } from "../../shared/api.js";
 import { go } from "../../shared/routing.js";
 import { DuesTable } from "../dues/Dues.jsx";
-import { PageHelp } from "../../shared/Help.jsx";
 import {
   AIChip, Banner, Drawer, Field, Loading, Segmented, Select, Stat, StatusChip, TableToolbar, cycleHint, day, inr, isModel, matches, signed, stateName, toast,
   useAction, useLoad, usePoll, when,
@@ -58,7 +57,6 @@ export default function RunPage({ runId, me }) {
           <a href="#/months" className="small">← Payroll months</a>
           <div className="title-row">
             <h1>{run.period_label}{draft && <span className="muted"> · draft re-run #{run.id}</span>}</h1>
-            <PageHelp topic={draft ? "run.calculate" : `run.${shown || "data"}`} />
           </div>
           {cycleHint(run.cycle) && <p className="muted small" style={{ marginTop: 0 }}>{cycleHint(run.cycle)}</p>}
           <div className="row">

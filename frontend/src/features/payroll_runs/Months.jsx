@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { api } from "../../shared/api.js";
-import { PageHelp } from "../../shared/Help.jsx";
 import { go } from "../../shared/routing.js";
 import { Banner, Field, Loading, StatusChip, cycleHint, inr, useAction, useLoad, when } from "../../shared/ui.jsx";
 
@@ -31,7 +30,7 @@ export default function Months({ company, me }) {
   };
   return (
     <div>
-      <div className="topbar"><div className="title-row"><h1>Payroll months</h1><PageHelp topic="months" /></div></div>
+      <div className="topbar"><div className="title-row"><h1>Payroll months</h1></div></div>
       {isMaker && (
         <div className="card">
           <h2>Open a month</h2>

@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { api } from "../../shared/api.js";
 import { Banner, Field, Loading, matches, monthLabel, useAction, useLoad, when } from "../../shared/ui.jsx";
 import { PAY_CYCLES, PayCycleFields, cycleExample } from "../rules/RuleForms.jsx";
-import { PageHelp } from "../../shared/Help.jsx";
 
 // Pay groups: people paid on the same cycle and the same day. Each person's group comes from the HR data (a "Pay group"
 // column, or a group's department / state / designation rule); the finance team can set it by hand for exceptions.
@@ -100,7 +99,7 @@ export function PayGroupsCard({ company, me }) {
     <div className="card pay-groups">
       <div className="card-head">
         <div>
-          <div className="title-row"><h2>Pay groups</h2><PageHelp topic="pay_groups" /></div>
+          <div className="title-row"><h2>Pay groups</h2></div>
           <p className="muted small" style={{ margin: 0 }}>{monthLabel(data.period)} · <a href="#/employees">Employees</a></p>
         </div>
         {isMaker && <button className="small" onClick={() => setEditing("new")}>+ New pay group</button>}
@@ -163,7 +162,7 @@ export default function EmployeesPage({ company, me }) {
     <div>
       <div className="topbar">
         <div>
-          <div className="title-row"><h1>Employees</h1><PageHelp topic="employees" /></div>
+          <div className="title-row"><h1>Employees</h1></div>
         </div>
         <Field label="Month"><input type="month" value={period || data.period} onChange={(e) => setPeriod(e.target.value)} /></Field>
       </div>

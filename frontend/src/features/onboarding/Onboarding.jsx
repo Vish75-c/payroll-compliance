@@ -4,7 +4,6 @@ import { go } from "../../shared/routing.js";
 import { Banner, Checks, Field, Loading, StatusChip, inr, monthLabel, useAction, useLoad } from "../../shared/ui.jsx";
 import { AddConnector, Connector, UploadFiles } from "../hr_data/HRData.jsx";
 import { PayCycleFields } from "../rules/RuleForms.jsx";
-import { PageHelp } from "../../shared/Help.jsx";
 import { OTHER_OFFICE, PF_OFFICES, splitPfCode } from "./pfOffices.js";
 
 // Where the company is comes from the server (worked out from what exists), so the steps can be left and resumed.
@@ -44,7 +43,7 @@ function NewCompany({ onCreated }) {
   const states = useLoad(() => api.get("/states"), []);
   return (
     <div>
-      <div className="topbar"><div className="title-row"><h1>Add a company</h1><PageHelp topic="onboarding.company" /></div></div>
+      <div className="topbar"><div className="title-row"><h1>Add a company</h1></div></div>
       <div className="wizard">
         <StepList active="company" steps={null} firstMonth="" onPick={() => {}} />
         <div className="card">
@@ -96,7 +95,7 @@ function Wizard({ companyId, onCompanyChanged }) {
   const allDone = STEPS.every(([k]) => done(steps, k, firstMonth));
   return (
     <div>
-      <div className="topbar"><div><div className="title-row"><h1>Set up {company.name}</h1><PageHelp topic={`onboarding.${current}`} /></div>
+      <div className="topbar"><div><div className="title-row"><h1>Set up {company.name}</h1></div>
         <p className="muted">First payroll month: <b>{monthLabel(firstMonth)}</b></p></div></div>
       {allDone && <Banner kind="ok" title={`${company.name} is set up.`} action={<button className="primary" onClick={() => go(`/runs/${steps.first_month.run_id}`)}>Open {monthLabel(steps.first_month.period)}</button>} />}
       <div className="wizard">

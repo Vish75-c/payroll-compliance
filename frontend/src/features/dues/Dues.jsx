@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { api } from "../../shared/api.js";
-import { PageHelp } from "../../shared/Help.jsx";
 import { go } from "../../shared/routing.js";
 import { Banner, Field, Loading, Segmented, Stat, day, inr, useAction, useLoad } from "../../shared/ui.jsx";
 
@@ -118,7 +117,7 @@ export default function Dues({ company, me }) {
     <div>
       <div className="topbar">
         <div>
-          <div className="title-row"><h1>Government dues</h1><PageHelp topic="dues" /></div>
+          <div className="title-row"><h1>Government dues</h1></div>
         </div>
       </div>
       {s.overdue > 0 && (
