@@ -307,3 +307,32 @@ def test_salary_seen_on_an_employee_list_is_shown_with_the_salary_data(demo):
     alone = maker.post(f"/api/companies/{company.pk}/uploads", {"employees": fixture("employee_export.xlsx")}).json()
     only = maker.get(f"/api/jobs/{alone['id']}").json()["tables"][0]
     assert "salary_columns" not in only and "Basic Salary" in only["headers"]
+
+
+def test_a_fact_missing_for_some_people_makes_only_them_wait():
+    from datetime import date
+
+    from payroll.features.hr_data.normalize import build_snapshot
+
+    structure = {"components": [{"code": "basic", "share": "0.50"}, {"code": "hra", "share": "0.20"},
+                                {"code": "special_allowance", "share": "remainder"}]}
+    headers = ["ID", "Name", "Salary", "Joined", "State", "Gender"]
+    rows = [{"ID": "E1", "Name": "Asha Nair", "Salary": "30000", "Joined": "2024-01-01", "State": "Karnataka", "Gender": "Female"},
+            {"ID": "E2", "Name": "Dev Shah", "Salary": "40000", "Joined": "", "State": "", "Gender": "Male"},
+            {"ID": "E3", "Name": "Ira Rao", "Salary": "", "Joined": "2024-03-01", "State": "Karnataka", "Gender": ""}]
+    mapping = {"ID": "employee.code", "Name": "employee.name", "Salary": "comp.monthly_gross", "Joined": "employee.date_of_joining",
+               "State": "employee.work_state", "Gender": "employee.gender"}
+    data, checks = build_snapshot([{"name": "People", "headers": headers, "rows": rows, "mapping": mapping, "dataset_hint": "employees"}],
+                                  structure, date(2025, 7, 1))
+    codes = {c["code"]: c for c in checks}
+    assert data["incomplete"] == {"E2": ["date_of_joining", "work_state"], "E3": ["salary", "gender"]}
+    for code in ("no_salary", "no_joining_date", "no_work_state", "no_gender"):
+        assert codes[code]["level"] == "warning", code
+    assert codes["no_joining_date"]["detail"]["employees"] == ["E2"] and "everyone else is paid" in codes["no_joining_date"]["message"]
+    assert not [c for c in checks if c["level"] == "error"]  # the data can be reviewed; E1 is paid
+
+    full = [dict(r, Joined=r["Joined"] or "2024-01-01", State=r["State"] or "Karnataka", Gender=r["Gender"] or "Female",
+                 Salary=r["Salary"] or "35000") for r in rows]
+    data, _ = build_snapshot([{"name": "People", "headers": headers, "rows": full, "mapping": mapping, "dataset_hint": "employees"}],
+                             structure, date(2025, 7, 1))
+    assert "incomplete" not in data  # complete data looks exactly as before

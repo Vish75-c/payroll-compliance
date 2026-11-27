@@ -27,10 +27,10 @@ from ..hr_data.models import DataSnapshot
 from ..dues import dues
 from ..rules.policies import versions_for
 from ..pay_groups import service as groups_service
-from . import cycle, exports
+from . import cycle, employees, exports
 from .events import record
 from .inputs import build_run_input, default_day_count
-from .models import ChangeRequest, PayrollRun
+from .models import ChangeRequest, PayrollRun, RunEmployee
 
 
 def _lock(run_id: int) -> PayrollRun:
@@ -145,7 +145,37 @@ def previous_month_block(company: Company, p: Period) -> str:
     prev = p.prev()
     if not earlier.filter(period=str(prev)).exists():
         return f"Run {prev.label} first: months are run in order, one after another."
+    still_missing = people_on_hold_without_data(company, p)
+    if still_missing:
+        names = "; ".join(f"{h.employee_code} ({', '.join(RunEmployee.MISSING_FIELDS.get(f, f).lower() for f in missing)}, "
+                          f"on hold since {h.run.period_obj.label})" for h, missing in still_missing[:5])
+        more = f" and {len(still_missing) - 5} more" if len(still_missing) > 5 else ""
+        return (f"{p.label} can be opened once everyone on hold has their HR data: {names}{more}. "
+                "Ask HR to add it, then read and review the HR data again; the held salary is then paid with "
+                f"{p.label}.")
     return ""
+
+
+def people_on_hold_without_data(company: Company, p: Period) -> list[tuple[RunEmployee, list[str]]]:
+    """People put on hold in a month before ``p`` whose held salary is not paid yet and whose missing HR data has not
+    arrived: the newest reviewed HR data still lists them as incomplete (or does not have them at all). While anyone
+    is in this list, no later month can be opened."""
+    held = list(RunEmployee.objects.filter(
+        run__company=company, run__run_type=PayrollRun.TYPE_REGULAR, run__status=PayrollRun.FINALIZED, run__period__lt=str(p),
+        status=RunEmployee.ON_HOLD, paid_in_run__isnull=True).select_related("run").order_by("run__period", "employee_code"))
+    if not held:
+        return []
+    latest = DataSnapshot.objects.filter(company=company, status="approved").order_by("-reviewed_at", "-id").first()
+    data = latest.data if latest else {}
+    known = {e["code"] for e in data.get("employees", [])}
+    incomplete = data.get("incomplete") or {}
+    out = []
+    for h in held:
+        if h.employee_code not in known:
+            out.append((h, h.missing or ["salary"]))
+        elif h.employee_code in incomplete:
+            out.append((h, incomplete[h.employee_code]))
+    return out
 
 
 def open_month(company: Company, period: str, user, snapshot: DataSnapshot | None = None,
@@ -181,6 +211,7 @@ def open_month(company: Company, period: str, user, snapshot: DataSnapshot | Non
     except IntegrityError as exc:
         raise RuleViolation(f"{p.label} is already open.", code="exists") from exc
     days = effective_day_count(run)
+    employees.sync_states(run, user)
     record(run, user, "opened", f"{p.label} opened with HR data #{snapshot.pk} ({snapshot.source_system}). "
            f"One day's pay = monthly pay ÷ {days['days']} ({days['source']}).",
            snapshot_id=snapshot.pk, knowledge_date=run.knowledge_date.isoformat(), day_count=days["days"])
@@ -203,6 +234,7 @@ def use_snapshot(run_id: int, snapshot: DataSnapshot, user, require_fresh_data: 
     if run.status in (PayrollRun.CALCULATED, PayrollRun.REJECTED):
         run.status = PayrollRun.DRAFT
     run.save()
+    employees.sync_states(run, user)
     record(run, user, "data_replaced", f"Now uses HR data #{snapshot.pk}. The finance team employee must review it again.", snapshot_id=snapshot.pk)
     return run
 
@@ -245,6 +277,7 @@ def check_calculate(run: PayrollRun, user):
 def calculate(run_id: int, user) -> PayrollRun:
     run = _lock(run_id)
     check_calculate(run, user)
+    employees.sync_states(run, user)
     data, input_hash, result, result_hash = compute(run)
     same_as_before = bool(run.result_hash) and run.input_hash == input_hash and run.result_hash == result_hash
     run.input, run.input_hash, run.result, run.result_hash = data, input_hash, result, result_hash
@@ -327,6 +360,13 @@ def check_submit(run: PayrollRun, user):
     pending = ChangeRequest.objects.filter(company=run.company, period=run.period, status=ChangeRequest.PROPOSED).count()
     if pending:
         raise RuleViolation(f"{pending} proposed change(s) are neither confirmed nor discarded.")
+    still_waiting = employees.waiting(run)
+    if still_waiting:
+        raise RuleViolation(
+            f"{len(still_waiting)} {'people are' if len(still_waiting) > 1 else 'person is'} waiting for HR data ("
+            + "; ".join(f"{w.employee_code}: {employees._labels(w.missing)}" for w in still_waiting[:5])
+            + ("…" if len(still_waiting) > 5 else "") + "). Wait for the data, or put them on hold so everyone else is paid.",
+            code="people_waiting")
     errors = [i for i in run.result.get("issues", []) if i["level"] == "error"]
     if errors:
         raise RuleViolation("Fix the errors in the calculation first: " + "; ".join(f"{i['employee']}: {i['message']}" for i in errors))
@@ -430,6 +470,7 @@ def finalize(run_id: int, user=None) -> PayrollRun:
             run.save()
     except IntegrityError as exc:
         raise RuleViolation(f"{run.period_obj.label} is already final.") from exc
+    employees.mark_paid(run)
     owed = dues.create_for_run(run)
     record(run, user, "finalized", f"Final. Register and {len(manifest['files']) - 1} payment files written; all totals match the register. "
            f"{len(owed)} government payment{'s' if len(owed) != 1 else ''} to make: "

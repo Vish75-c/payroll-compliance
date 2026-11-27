@@ -254,7 +254,7 @@ def build_snapshot(tables: list[dict], salary_structure: dict, first_seen: date,
             "code", "name", "work_state", "gender", "date_of_joining", "date_of_exit", "pf_applicable", "esi_applicable",
             "department", "designation", "pay_group") if emp.get(k) not in (None, "")})
 
-    _completeness(c, tables, employees, compensation, leave, attendance)
+    incomplete = _completeness(c, tables, employees, compensation, leave, attendance)
     data = {
         "schema_version": SCHEMA_VERSION,
         "employees": employees,
@@ -267,6 +267,8 @@ def build_snapshot(tables: list[dict], salary_structure: dict, first_seen: date,
             for t in tables
         ],
     }
+    if incomplete:  # who is missing which fact; only present when someone is, so complete data hashes as before
+        data["incomplete"] = {code: incomplete[code] for code in sorted(incomplete)}
     return data, c.checks
 
 
@@ -585,35 +587,40 @@ def _completeness(c: _Collector, tables, employees, compensation, leave, attenda
 
     codes = {e["code"] for e in employees}
     with_salary = {r["employee_code"] for r in compensation}
-    missing = sorted(codes - with_salary)
     if not employees:
         c.check("error", "no_employees", "No employees were found.")
-    for code in missing:
-        name = next(e["name"] for e in employees if e["code"] == code)
-        c.check("error", "no_salary", f"No salary found for {name} ({code}).")
-    if employees and not missing:
-        c.check("ok", "salary_for_all", f"Every one of the {len(employees)} employees has a salary.")
 
-    # Facts that change pay but are easy to leave out of a screen or a file: say when they are missing.
     def some(codes):
         return ", ".join(codes[:5]) + (f" and {len(codes) - 5} more" if len(codes) > 5 else "")
-    # These block the data: nothing traces a month back and corrects it after it is paid, so the data must be complete
-    # before any month uses it. Fix them in the HR tool (or the file) and read again.
-    no_doj = [e["code"] for e in employees if not e.get("date_of_joining")]
-    if no_doj:
-        c.check("error", "no_joining_date",
-                f"{len(no_doj)} of {len(employees)} employees have no date of joining ({some(no_doj)}). Someone who joined "
-                "during a month would be paid for the whole month. Add the joining date in the HR tool and read again.")
-    no_state = [e["code"] for e in employees if not e.get("work_state")]
-    if no_state:
-        c.check("error", "no_work_state",
-                f"{len(no_state)} of {len(employees)} employees have no work location ({some(no_state)}), so their professional "
-                "tax cannot be worked out for the right state. Add the work location in the HR tool and read again.")
-    no_gender = [e["code"] for e in employees if not e.get("gender")]
-    if no_gender:
-        c.check("error", "no_gender",
-                f"{len(no_gender)} of {len(employees)} employees have no gender ({some(no_gender)}). Professional tax depends on "
-                "it in some states (Maharashtra, for example). Add it in the HR tool and read again.")
+
+    # Facts that pay depends on. Missing for some people: those people wait (they are left out of a month until HR
+    # adds the fact, or put on hold at the cut-off) and everyone else is paid. Missing for everyone: a column is
+    # missing or mapped wrongly, which is not one person's gap, so the data is stopped. Nothing corrects a paid month,
+    # so nobody is ever paid on a guess.
+    incomplete: dict[str, list[str]] = {}
+
+    def gap(field: str, code: str, people: list[str], what: str, why: str):
+        if not people:
+            return
+        if len(people) == len(employees):
+            c.check("error", code, f"{len(people)} of {len(employees)} employees have no {what} ({some(people)}). {why} "
+                    "Check that the column is read and mapped, or add it in the HR tool, and read again.")
+            return
+        for person in people:
+            incomplete.setdefault(person, []).append(field)
+        c.check("warning", code, f"{len(people)} of {len(employees)} employees have no {what} ({some(people)}). {why} "
+                f"{'They are' if len(people) > 1 else 'This person is'} left out of a month until HR adds it, and put on hold "
+                "at the cut-off if it is still missing; everyone else is paid as usual.", employees=people)
+
+    gap("salary", "no_salary", sorted(codes - with_salary), "salary", "There is nothing to pay them from.")
+    if employees and codes <= with_salary:
+        c.check("ok", "salary_for_all", f"Every one of the {len(employees)} employees has a salary.")
+    gap("date_of_joining", "no_joining_date", [e["code"] for e in employees if not e.get("date_of_joining")], "date of joining",
+        "Someone who joined during a month would be paid for the whole month.")
+    gap("work_state", "no_work_state", [e["code"] for e in employees if not e.get("work_state")], "work location",
+        "Their professional tax cannot be worked out for the right state.")
+    gap("gender", "no_gender", [e["code"] for e in employees if not e.get("gender")], "gender",
+        "Professional tax depends on it in some states (Maharashtra, for example).")
 
     by_emp = defaultdict(list)
     for r in compensation:
@@ -642,6 +649,7 @@ def _completeness(c: _Collector, tables, employees, compensation, leave, attenda
         total = sum((unpaid_days_for(data_stub(leave, attendance), code, Period.parse(p)) for code in codes), Decimal(0))
         c.check("info", "unpaid_days_total", f"{Period.parse(p).label}: {to_str(total)} unpaid days in total across all employees.")
     c.check("info", "summary", f"{len(employees)} employees, {len(compensation)} salary records, {len(leave)} leave records, {len(attendance)} monthly unpaid-day records.")
+    return incomplete
 
 
 def data_stub(leave, attendance):

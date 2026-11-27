@@ -11,6 +11,7 @@ from ..companies.present import company
 from ..dues.present import due
 from ..hr_data.present import snapshot_summary
 from . import cycle
+from . import employees as employee_service
 from . import runs as run_service
 from .inputs import _in_period
 from .models import ChangeRequest, PayrollRun
@@ -111,7 +112,8 @@ def run_detail(r: PayrollRun, user, with_workflow: bool = True):
         "review_data": is_maker and not locked and unreviewed,
         "add_changes": is_maker and not locked and regular,
         "calculate": is_maker and not locked and not unreviewed,
-        "submit": is_maker and regular and status in (PayrollRun.CALCULATED, PayrollRun.REJECTED) and not pending_changes,
+        "submit": is_maker and regular and status in (PayrollRun.CALCULATED, PayrollRun.REJECTED) and not pending_changes
+                  and not r.employee_states.filter(status="waiting").exists(),
         "approve": is_checker and regular and status == PayrollRun.AWAITING_APPROVAL
                    and user.pk not in (r.submitted_by_id, r.calculated_by_id),
         "reject": is_checker and regular and status == PayrollRun.AWAITING_APPROVAL
@@ -123,6 +125,8 @@ def run_detail(r: PayrollRun, user, with_workflow: bool = True):
         "change_day_count": is_maker and not locked and regular,
     }
     out["day_count"] = run_service.effective_day_count(r)
+    # Who is waiting for HR data or on hold this month (everyone else is in the calculation).
+    out["employee_states"] = employee_service.present(r, user) if regular else None
     out["dues"] = [due(x) for x in r.dues.all()] if is_checker else []  # the finance head's only
     out["four_eyes_note"] = ""
     if status == PayrollRun.AWAITING_APPROVAL and is_checker and user.pk in (r.submitted_by_id, r.calculated_by_id):

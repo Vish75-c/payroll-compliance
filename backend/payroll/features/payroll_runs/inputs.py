@@ -150,7 +150,10 @@ def build_run_input(run: PayrollRun) -> dict:
     esi_period_start = period.esi_contribution_start
 
     employees = []
+    incomplete = data.get("incomplete") or {}
     for emp in data["employees"]:
+        if emp["code"] in incomplete:
+            continue  # missing a fact pay depends on (salary, joining date, work state, gender): waits, never paid on a guess
         window = windows[emp["code"]]
         if not _in_period(emp, window.salary):
             continue

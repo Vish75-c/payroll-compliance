@@ -4,6 +4,7 @@ from datetime import date
 import pytest
 
 from payroll.models import PayrollRun
+from payroll_engine.periods import Period
 from payroll.features.payroll_runs import changes, runs
 from payroll.features.rules import policies
 from payroll.demo import setup
@@ -161,10 +162,167 @@ def test_run_employee_keeps_one_state_per_person_per_month(demo):
 
     company, _ = demo
     run = runs.open_month(company, "2025-04", setup.system_user("maker"))
-    row = RunEmployee.objects.create(run=run, employee_code="BL016", status=RunEmployee.WAITING, missing=["work_state"])
+    assert run.employee_states.count() > 0  # opening the month made a row for everyone in it
+    row = run.employee_states.get(employee_code="BL016")
+    row.status, row.missing = RunEmployee.WAITING, ["work_state"]
+    row.save()
     assert row.get_status_display() == "Waiting for HR data" and not row.held_by_system
     row.status = RunEmployee.ON_HOLD
     row.save()
     assert row.held_by_system  # on hold with no person named: the cut-off did it
     with pytest.raises(IntegrityError), transaction.atomic():
         RunEmployee.objects.create(run=run, employee_code="BL016")
+
+
+def test_a_person_missing_hr_data_is_left_out_and_everyone_else_is_calculated(demo):
+    from payroll.models import DataSnapshot
+    from payroll_engine.hashing import sha256
+
+    company, snapshot = demo
+    maker = setup.system_user("maker")
+    data = dict(snapshot.data)
+    first, second = data["employees"][0]["code"], data["employees"][1]["code"]
+    data["employees"] = [{k: v for k, v in e.items() if not (e["code"] == first and k == "work_state")} for e in data["employees"]]
+    data["incomplete"] = {first: ["work_state"]}
+    gap = DataSnapshot.objects.create(company=company, source_kind="spreadsheet", source_system="Spreadsheet", data=data,
+                                      content_hash=sha256(snapshots.content_of(data)),
+                                      checks=[{"level": "warning", "code": "no_work_state", "message": "1 of n"}])
+    snapshots.approve(gap, maker)  # a warning, not an error: the data can be used
+    run = runs.open_month(company, "2025-04", maker, snapshot=gap)
+    runs.review_data(run.pk, maker)
+    run = runs.calculate(run.pk, maker)
+    paid = {e["code"] for e in run.result["employees"]}
+    assert first not in paid and second in paid
+    assert run.result["employee_count"] == len(paid)
+    assert first not in {e["code"] for e in run.input["employees"]}  # not in the input either: nothing is guessed
+
+
+def test_someone_on_hold_stops_the_next_month_until_their_hr_data_arrives(demo):
+    from payroll.models import DataSnapshot, RunEmployee
+    from payroll_engine.hashing import sha256
+
+    company, snapshot = demo
+    history(company)  # April to June, final
+    maker = setup.system_user("maker")
+    june = PayrollRun.objects.get(company=company, period="2025-06", run_type="regular")
+    code = snapshot.data["employees"][0]["code"]
+    assert june.employee_states.get(employee_code=code).status == RunEmployee.PAID  # finalising marked everyone paid
+    june.employee_states.filter(employee_code=code).update(status=RunEmployee.ON_HOLD, missing=["work_state"])
+
+    def reviewed(data):
+        s = DataSnapshot.objects.create(company=company, source_kind="spreadsheet", source_system="Spreadsheet", data=data,
+                                        content_hash=sha256(snapshots.content_of(data)), checks=[])
+        return snapshots.approve(s, maker)
+
+    # HR has not added the work state yet: July cannot start.
+    reviewed(dict(snapshot.data, incomplete={code: ["work_state"]}))
+    with pytest.raises(RuleViolation, match=f"once everyone on hold has their HR data: {code} \\(work state, on hold since June 2025\\)") as exc:
+        runs.open_month(company, "2025-07", maker)
+    assert exc.value.code == "previous_not_done"
+
+    # HR adds it and the new data is reviewed: July can start (and pays June's held salary).
+    reviewed(dict(snapshot.data))
+    assert runs.previous_month_block(company, Period.parse("2025-07")) == ""
+    assert runs.open_month(company, "2025-07", maker).period == "2025-07"
+
+
+def test_a_held_salary_already_paid_does_not_block(demo):
+    from payroll.models import RunEmployee
+
+    company, _ = demo
+    history(company)
+    june = PayrollRun.objects.get(company=company, period="2025-06", run_type="regular")
+    may = PayrollRun.objects.get(company=company, period="2025-05", run_type="regular")
+    RunEmployee.objects.create(run=may, employee_code="NOT-IN-DATA", status=RunEmployee.PAID_LATER, paid_in_run=june)
+    assert runs.previous_month_block(company, Period.parse("2025-07")) == ""
+
+
+def _with_gap(company, snapshot, maker, code, field="work_state"):
+    from payroll.models import DataSnapshot
+    from payroll_engine.hashing import sha256
+
+    data = dict(snapshot.data)
+    data["employees"] = [{k: v for k, v in e.items() if not (e["code"] == code and k == field)} for e in data["employees"]]
+    data["incomplete"] = {code: [field]}
+    s = DataSnapshot.objects.create(company=company, source_kind="spreadsheet", source_system="Spreadsheet", data=data,
+                                    content_hash=sha256(snapshots.content_of(data)), checks=[])
+    return snapshots.approve(s, maker)
+
+
+def test_waiting_people_block_submit_until_held_and_are_marked_paid_or_on_hold(demo):
+    from payroll.features.payroll_runs import employees
+    from payroll.models import RunEmployee
+
+    company, snapshot = demo
+    history(company)
+    maker, checker = setup.system_user("maker"), setup.system_user("checker")
+    code = snapshot.data["employees"][0]["code"]
+    gap = _with_gap(company, snapshot, maker, code)
+    july = runs.open_month(company, "2025-07", maker, snapshot=gap)
+    state = {r.employee_code: r for r in july.employee_states.all()}
+    assert state[code].status == RunEmployee.WAITING and state[code].missing == ["work_state"]
+    assert all(r.status == RunEmployee.READY for c, r in state.items() if c != code)
+
+    runs.review_data(july.pk, maker)
+    july = runs.calculate(july.pk, maker)
+    assert code not in {e["code"] for e in july.result["employees"]}
+    with pytest.raises(RuleViolation, match=f"1 person is waiting for HR data \\({code}: work state\\)") as exc:
+        runs.submit(july.pk, maker)
+    assert exc.value.code == "people_waiting"
+
+    with pytest.raises(RuleViolation, match="Say why"):
+        employees.hold(july.pk, code, maker, " ")
+    with pytest.raises(RuleViolation):
+        employees.hold(july.pk, code, checker, "x")  # only the finance team employee holds people
+    other = next(c for c in state if c != code)
+    with pytest.raises(RuleViolation, match="complete data"):
+        employees.hold(july.pk, other, maker, "x")
+    employees.hold(july.pk, code, maker, "HR is confirming the work location")
+
+    runs.submit(july.pk, maker)
+    with pytest.raises(RuleViolation, match="on hold"):
+        employees.hold(july.pk, other, maker, "x")  # submitted: nothing changes now
+    runs.approve(july.pk, checker)
+    runs.finalize(july.pk, checker)
+    state = {r.employee_code: r.status for r in july.employee_states.all()}
+    assert state[code] == RunEmployee.ON_HOLD and state[other] == RunEmployee.PAID
+    assert runs.people_on_hold_without_data(company, Period.parse("2025-08"))  # August waits for the data
+
+
+def test_data_arriving_before_submit_takes_a_person_off_hold(demo):
+    from payroll.features.payroll_runs import employees
+    from payroll.models import DataSnapshot, RunEmployee, RunEvent
+
+    company, snapshot = demo
+    history(company)
+    maker = setup.system_user("maker")
+    code = snapshot.data["employees"][0]["code"]
+    july = runs.open_month(company, "2025-07", maker, snapshot=_with_gap(company, snapshot, maker, code))
+    employees.hold(july.pk, code, maker, "waiting for HR")
+    complete = DataSnapshot.objects.create(company=company, source_kind="spreadsheet", source_system="Spreadsheet",
+                                           data=dict(snapshot.data), content_hash=snapshot.content_hash + "x", checks=[])
+    snapshots.approve(complete, maker)
+    runs.use_snapshot(july.pk, complete, maker)
+    row = july.employee_states.get(employee_code=code)
+    assert row.status == RunEmployee.READY and row.held_at is None
+    assert RunEvent.objects.filter(run=july, action="hold_released").exists()
+    runs.review_data(july.pk, maker)
+    assert code in {e["code"] for e in runs.calculate(july.pk, maker).result["employees"]}
+
+
+def test_the_cut_off_holds_everyone_still_waiting(demo):
+    from datetime import date as _date
+
+    from payroll.features.payroll_runs import employees
+    from payroll.models import RunEmployee
+
+    company, snapshot = demo
+    history(company)
+    maker = setup.system_user("maker")
+    code = snapshot.data["employees"][0]["code"]
+    july = runs.open_month(company, "2025-07", maker, snapshot=_with_gap(company, snapshot, maker, code))
+    assert employees.hold_waiting_at_cut_off(july.pk, today=_date(2025, 7, 27)) == []  # before the 28th: keep waiting
+    held = employees.hold_waiting_at_cut_off(july.pk, today=_date(2025, 7, 28))
+    assert [h.employee_code for h in held] == [code]
+    row = july.employee_states.get(employee_code=code)
+    assert row.status == RunEmployee.ON_HOLD and row.held_by_system and "cut-off (28 Jul 2025)" in row.hold_reason

@@ -20,6 +20,7 @@ from ..companies.models import Company
 from ..hr_data.models import DataSnapshot
 from . import absences as absence_service
 from . import changes as change_service
+from . import employees as employee_service
 from . import exports
 from . import present as P
 from . import runs as run_service
@@ -108,6 +109,15 @@ def run_action(request, run_id, action):
         raise Http404
     run.refresh_from_db()
     return Response({"outcome": outcome, "run": P.run_detail(run, request.user, with_workflow=False)})
+
+
+@api_view(["POST"])
+def run_hold(request, run_id):
+    """Put a person who is waiting for HR data on hold, so the month goes ahead for everyone else."""
+    run = get_object_or_404(PayrollRun.objects.select_related("company", "snapshot"), pk=run_id)
+    employee_service.hold(run.pk, request.data.get("employee_code", ""), request.user, request.data.get("reason", ""))
+    run.refresh_from_db()
+    return Response({"run": P.run_detail(run, request.user, with_workflow=False)})
 
 
 @api_view(["POST"])
