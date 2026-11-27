@@ -84,19 +84,31 @@ th.num { font-family: inherit; font-size: 11px; letter-spacing: .07em; }
   padding: 22px 14px 16px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
 .workspace-brand { color: var(--panel); margin: 0 6px 22px; }
 /* Brand block: logo, then the product name with the company name under it */
-.side-brand { display: flex; align-items: center; gap: 11px; margin: 0 6px 24px; min-width: 0; }
-.side-brand-mark { width: 38px; height: 38px; }
-.side-brand-mark:hover { text-decoration: none; }
-.side-brand-text { display: grid; gap: 1px; min-width: 0; }
-.side-brand-name { color: var(--panel); font-family: var(--font-display); font-size: 1.14rem; font-weight: 600; letter-spacing: -.01em; line-height: 1.2; }
-.side-brand-name:hover { text-decoration: none; }
-.side-company { color: var(--side-mute); font-size: 12.5px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
-select.side-company { appearance: none; -webkit-appearance: none; background: transparent; border: 0; padding: 0 16px 0 0; margin: 0; cursor: pointer;
-  font-family: inherit; color: var(--side-mute); width: auto;
-  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
-  background-position: right 6px center, right 2px center; background-size: 4px 4px; background-repeat: no-repeat; }
-select.side-company:hover, select.side-company:focus-visible { color: var(--panel); outline: none; }
-select.side-company option { color: #111; }
+.side-brand { display: flex; align-items: center; gap: 10px; margin: 0 6px 14px; min-width: 0; color: var(--panel); }
+.side-brand:hover { text-decoration: none; }
+.side-brand-mark { flex: none; width: 34px; height: 34px; }
+.side-brand-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--panel);
+  font-family: var(--font-display); font-size: 1.08rem; font-weight: 600; letter-spacing: -.01em; line-height: 1.2; }
+/* the company card under the product name */
+.side-company { position: relative; margin: 0 2px 22px; }
+.side-company-btn { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 14px; background: rgba(255, 255, 255, .05); color: var(--panel); text-align: left; font: inherit; box-shadow: none; }
+.shell .side-company-btn { padding: 9px 10px; border-radius: 14px; font-weight: 400; transform: none; }
+button.side-company-btn { cursor: pointer; transition: background .2s, border-color .2s; }
+button.side-company-btn:hover, .side-company.is-open button.side-company-btn { background: rgba(255, 255, 255, .09); border-color: rgba(255, 255, 255, .18); }
+.side-company-avatar { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: var(--side-accent); color: var(--side); font-weight: 700; font-size: 14px; }
+.side-company-text { display: grid; min-width: 0; flex: 1; line-height: 1.25; }
+.side-company-text b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13.5px; font-weight: 600; }
+.side-company-text small { color: var(--side-mute); font-size: 11.5px; }
+.side-company-chev { flex: none; color: var(--side-mute); font-size: 15px; line-height: 1; margin-top: -6px; transition: transform .2s; }
+.side-company.is-open .side-company-chev { transform: rotate(180deg); margin-top: 4px; }
+.side-company-menu { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; right: 0; margin: 0; padding: 6px; list-style: none; border-radius: 14px;
+  background: #fff; box-shadow: 0 18px 40px -16px rgba(0, 0, 0, .55); }
+.side-company-menu button { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 0; border-radius: 9px;
+  background: transparent; color: #111; font: inherit; font-size: 13.5px; text-align: left; box-shadow: none; cursor: pointer; }
+.shell .side-company-menu button { padding: 8px 10px; border-radius: 9px; font-weight: 500; }
+.side-company-menu button:hover, .side-company-menu button.is-on { background: #eef7f1; }
+.side-company-menu button.is-on span:last-child { color: #0f7a35; }
 .workspace-brand:hover { text-decoration: none; }
 .side-back { display: inline-flex; align-items: center; gap: 6px; color: var(--side-ink); font-size: 13px; margin: -6px 6px 12px; }
 .side-back:hover { color: var(--panel); text-decoration: none; }
@@ -114,10 +126,6 @@ select.side-company option { color: #111; }
 .workspace-nav .nav-step { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid currentColor; font-size: 11px; font-weight: 700; line-height: 1; opacity: .8; }
 .workspace-nav a.active .nav-step { opacity: 1; border-color: var(--side-accent); background: var(--side-accent); color: var(--side); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.side .foot { border-top: 1px solid rgba(255, 255, 255, .08); margin-top: auto; padding: 14px 6px 2px; color: var(--side-ink); font-size: 13px; }
-.side .workspace-signout { min-height: 34px; margin-top: 10px; padding: 4px 12px; background: transparent; border-color: rgba(255, 255, 255, .18); color: var(--panel); }
-.side .workspace-signout:hover:not(:disabled) { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .35); }
-.workspace-user { color: var(--panel); }
 .workspace-mode { margin-top: 4px; }
 .main { padding: 26px 40px 64px; max-width: 1360px; width: 100%; min-width: 0; }
 .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 13px; color: var(--ink-3); margin-bottom: 14px; }
@@ -290,8 +298,8 @@ select.target { min-width: 260px; }
   .workspace-nav a { flex: none; padding: 7px 11px; font-size: 13px; }
   .workspace-nav a.active::before { display: none; }
   .side .foot { grid-row: 1; grid-column: 2; margin: 0; padding: 0; border: 0; display: flex; align-items: center; gap: 8px; }
-  .side .foot > :not(.workspace-signout) { display: none; }
-  .side .workspace-signout { margin: 0; }
+  .side .side-user { padding: 0; border: 0; background: none; }
+  .side .side-user-avatar, .side .side-user-text { display: none; }
   .main { padding: 16px; }
   .month-card { grid-template-columns: 1fr; }
   /* Narrow screens: stack the name and the net-pay box, let tabs scroll, and give label/value lists one column */
@@ -1127,3 +1135,22 @@ tr.subtotal td { font-weight: 600; background: var(--panel-2); border-bottom: 1.
 .no-changes:first-child { margin-top: 0; }
 .no-changes-icon { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 50%; background: rgba(21, 190, 83, .12); color: #0f7a35; font-weight: 700; }
 .no-changes b { display: block; margin-bottom: 2px; }
+/* The next month is locked until the earlier months are final */
+.mv-blocked { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; padding: 12px 14px; border-radius: 14px;
+  background: #fbf6ee; border: 1px solid #ecdcbf; color: var(--ink-2); font-size: .93rem; }
+
+/* Sidebar footer: who is signed in, and sign out */
+.side .foot { margin-top: auto; padding: 14px 0 2px; border-top: 1px solid rgba(255, 255, 255, .08); }
+.side-user { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 8px 8px 10px; border-radius: 14px;
+  background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .08); }
+.side-user-avatar { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, #2b2f2c, #3a403b); border: 1px solid rgba(255, 255, 255, .14); color: var(--panel); font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+.side-user-text { display: grid; flex: 1; min-width: 0; line-height: 1.25; }
+.side-user-text b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--panel); font-size: 13.5px; font-weight: 600; }
+.side-user-text small { color: var(--side-mute); font-size: 11.5px; line-height: 1.3; }
+.shell .side .workspace-signout { flex: none; display: grid; place-items: center; width: 34px; height: 34px; min-height: 0; padding: 0; border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, .12); background: transparent; color: var(--side-mute); box-shadow: none; transition: color .2s, background .2s, border-color .2s; }
+.shell .side .workspace-signout svg { width: 17px; height: 17px; }
+.shell .side .workspace-signout:hover:not(:disabled) { color: #fff; background: rgba(192, 57, 43, .85); border-color: transparent; transform: none; }
+.side-user-busy { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .25); border-top-color: #fff; animation: side-spin .8s linear infinite; }
+@keyframes side-spin { to { transform: rotate(360deg); } }

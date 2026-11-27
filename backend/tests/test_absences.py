@@ -94,10 +94,14 @@ def test_the_suggestions_are_the_days_nobody_reported(demo):
     snap = _read(maker, company, _attendance("2025-08", "2025-09", "2025-10"))
     data = DataSnapshot.objects.get(pk=snap).data
     assert data["presence_range"] == {"from": "2025-08-01", "to": "2025-10-31"}
+    prev = None
     for month in ("2025-08", "2025-09", "2025-10"):
         if month != "2025-08":  # each month needs HR data read after the month before it was opened
             _read(maker, company, _attendance("2025-08", "2025-09", "2025-10"))
-        out, got = _suggested(maker, _open(maker, company, month))
+        if prev:  # a month opens only once the month before is final; this test is about suggestions, not sign-off
+            PayrollRun.objects.filter(pk=prev).update(status=PayrollRun.FINALIZED)
+        prev = _open(maker, company, month)
+        out, got = _suggested(maker, prev)
         assert out["status"] == "ok" and out["checked"]["closed"] == []
         gaps = _gaps(month)
         # one suggestion per run of working days (BL066's Friday 26 and Monday 29 September are one)

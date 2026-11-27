@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "./shared/api.js";
 import { go } from "./shared/routing.js";
-import { Banner, Loading, Toasts, useAction } from "./shared/ui.jsx";
+import { Banner, Loading, Toasts, stateName, useAction } from "./shared/ui.jsx";
 import Brand, { PRODUCT_NAME, brandMark } from "./shared/Brand.jsx";
 import SessionGate from "./features/accounts/SessionGate.jsx";
 import Overview from "./features/companies/Overview.jsx";
@@ -13,22 +13,57 @@ import AILog from "./features/ai/AILog.jsx";
 import Dues from "./features/dues/Dues.jsx";
 import Onboarding from "./features/onboarding/Onboarding.jsx";
 import EmployeesPage from "./features/pay_groups/PayGroups.jsx";
-import HelpPage, { setHelpUser } from "./shared/Help.jsx";
 
 // How each role is named where people read it (the role codes stay maker / checker).
 const ROLE_NAMES = { maker: "Finance team employee", checker: "Finance head" };
 
-// The monthly work is two steps in order: bring in the HR data, then run the payroll month.
-// Those two items carry a step number instead of an icon so the order reads at a glance.
 const NAV = [
   ["/", "Overview", "◎"],
-  ["/data", "HR data", "⇩", 1],
-  ["/months", "Payroll months", "▦", 2],
+  ["/data", "HR data", "⇩"],
+  ["/months", "Payroll months", "▦"],
   ["/dues", "Government dues", "⌛"],
   ["/rules", "Rules & settings", "§"],
   ["/ai", "AI log", "✦"],
-  ["/help", "Help", "?"],
 ];
+
+// The company being worked on, as a card under the product name. With several companies it opens a short list.
+function CompanySwitcher({ company, companies, onPick }) {
+  const [open, setOpen] = useState(false);
+  const many = companies.length > 1;
+  const place = company.city || stateName(company.state) || "";
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => { if (!e.target.closest?.(".side-company")) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", close); document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const body = (
+    <>
+      <span className="side-company-avatar" aria-hidden="true">{company.name.slice(0, 1).toUpperCase()}</span>
+      <span className="side-company-text"><b title={company.name}>{company.name}</b>{place && <small>{place}</small>}</span>
+      {many && <span className="side-company-chev" aria-hidden="true">⌄</span>}
+    </>
+  );
+  return (
+    <div className={`side-company${open ? " is-open" : ""}`}>
+      {many ? <button type="button" className="side-company-btn" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}>{body}</button>
+        : <div className="side-company-btn is-static">{body}</div>}
+      {open && (
+        <ul className="side-company-menu" role="listbox" aria-label="Switch company">
+          {companies.map((c) => (
+            <li key={c.id}><button type="button" role="option" aria-selected={c.id === company.id} className={c.id === company.id ? "is-on" : ""}
+              onClick={() => { setOpen(false); if (c.id !== company.id) onPick(String(c.id)); }}>
+              <span>{c.name}</span>{c.id === company.id && <span aria-hidden="true">✓</span>}
+            </button></li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const initials = (name) => (name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
 
 export default function App() {
   return (
@@ -43,7 +78,6 @@ function rememberedCompany() {
 }
 
 function PayrollApp({ me, signOut, route }) {
-  setHelpUser(me.user.id);  // page tips are remembered per person
   const [companies, setCompanies] = useState(null);
   const [companyId, setCompanyId] = useState(rememberedCompany);
   const [error, setError] = useState("");
@@ -93,44 +127,42 @@ function PayrollApp({ me, signOut, route }) {
   // Moving people between pay groups by hand: reached from Rules & settings, only when there is more than one group.
   else if (parts[0] === "rules" && parts[1] === "pay-groups") page = <EmployeesPage company={company} me={me} />;
   else if (parts[0] === "rules") page = <Rules company={company} me={me} />;
-  else if (parts[0] === "help") page = <HelpPage />;
   else if (parts[0] === "ai") page = <AILog company={company} />;
   else page = <Banner kind="warn">Page not found.</Banner>;
 
   const isChecker = me.roles.includes("checker");
   // Government dues: the finance head only. HR data: the finance team only (the finance head sees a month's data from its page).
+  const displayName = (me.user.name || me.user.username || "").replace(/\s*\([^)]*\)\s*$/, "");
   const nav = NAV.filter(([path]) => (path !== "/dues" || isChecker) && (path !== "/data" || canUseHrData));
-  const numbered = nav.some(([path]) => path === "/data");
   const active = (path) => (path === "/" ? route === "/" : route.startsWith(path) || (path === "/months" && route.startsWith("/runs")));
   return (
     <div className="shell">
       <aside className="side">
         {/* The product name, with the company being worked on right under it (a switcher when there are several). */}
-        <div className="side-brand">
-          <a className="side-brand-mark product-mark has-logo" href="#/" aria-label={`${PRODUCT_NAME} home`}><img src={brandMark} alt="" /></a>
-          <div className="side-brand-text">
-            <a className="side-brand-name" href="#/">{PRODUCT_NAME}</a>
-            {company && (companies.length > 1
-              ? <select className="side-company" aria-label="Company" value={company.id} onChange={(e) => switchTo(e.target.value)}>
-                  {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              : <span className="side-company" title={company.name}>{company.name}</span>)}
-          </div>
-        </div>
-        {company && <nav className="workspace-nav" aria-label="Payroll workspace">{nav.map(([path, label, icon, step]) => {
-          // Number the steps only when step 1 is in the menu (the finance head has no HR data page).
-          const n = step && numbered ? step : null;
-          return (
-            <a key={path} href={"#" + path} aria-current={active(path) ? "page" : undefined} className={active(path) ? "active" : ""}>
-              {n ? <span className="nav-step" aria-hidden="true">{n}</span> : <span aria-hidden="true">{icon}</span>}
-              {n && <span className="sr-only">Step {n}: </span>}{label}
-            </a>
-          );
-        })}</nav>}
+        <a className="side-brand" href="#/" aria-label={`${PRODUCT_NAME} home`}>
+          <span className="side-brand-mark product-mark has-logo" aria-hidden="true"><img src={brandMark} alt="" /></span>
+          <span className="side-brand-name">{PRODUCT_NAME}</span>
+        </a>
+        {company && <CompanySwitcher company={company} companies={companies} onPick={switchTo} />}
+        {company && <nav className="workspace-nav" aria-label="Payroll workspace">{nav.map(([path, label, icon]) => (
+          <a key={path} href={"#" + path} aria-current={active(path) ? "page" : undefined} className={active(path) ? "active" : ""}>
+            <span aria-hidden="true">{icon}</span>{label}
+          </a>
+        ))}</nav>}
         <div className="foot">
-          <strong className="workspace-user">{(me.user.name || "").replace(/\s*\([^)]*\)\s*$/, "")}</strong>
-          <div>{me.roles.length ? me.roles.map((r) => ROLE_NAMES[r] || r).join(" & ") : "no role"}</div>
-          <button className="workspace-signout" disabled={!!busy} onClick={() => act("sign-out", signOut)}>{busy ? "Signing out…" : "Sign out"}</button>
+          <div className="side-user">
+            <span className="side-user-avatar" aria-hidden="true">{initials(displayName)}</span>
+            <span className="side-user-text">
+              <b className="workspace-user" title={displayName}>{displayName}</b>
+              <small>{me.roles.length ? me.roles.map((r) => ROLE_NAMES[r] || r).join(" & ") : "no role"}</small>
+            </span>
+            <button className="workspace-signout" disabled={!!busy} onClick={() => act("sign-out", signOut)}
+              aria-label="Sign out" title="Sign out">
+              {busy ? <span className="side-user-busy" aria-hidden="true" /> : (
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3M16 16l4-4-4-4M20 12H10" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              )}
+            </button>
+          </div>
         </div>
       </aside>
       <main className="main">{page}</main>

@@ -112,6 +112,8 @@ def company_overview(request, company_id):
         "company": P.company(company),
         "months": [months[k] for k in sorted(months, reverse=True)],
         "next_period": next_period,
+        # Why the next month cannot be opened yet (an earlier month is not final), or "".
+        "next_blocked": run_service.previous_month_block(company, Period.parse(next_period)) if next_period else "",
         "latest_snapshot": snapshot_summary(latest_snapshot) if latest_snapshot else None,
         "approved_snapshot": snapshot_summary(company.snapshots.filter(status="approved").order_by("-reviewed_at", "-id").first())
         if company.snapshots.filter(status="approved").exists() else None,

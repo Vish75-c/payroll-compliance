@@ -136,3 +136,19 @@ def test_versions_used_by_final_month_cannot_be_removed(demo):
     with pytest.raises(ValueError):
         pf.title = "edited"
         pf.save()
+
+
+def test_a_month_opens_only_after_the_months_before_are_final(demo):
+    company, _ = demo
+    history(company)  # April to June, final
+    maker = setup.system_user("maker")
+    with pytest.raises(RuleViolation, match="Run July 2025 first"):  # no skipping a month
+        runs.open_month(company, "2025-08", maker)
+    july = prepare_july(company, maker)  # open, calculated, not final
+    with pytest.raises(RuleViolation, match="once July 2025 is done") as exc:
+        runs.open_month(company, "2025-08", maker)
+    assert exc.value.code == "previous_not_done"
+    assert runs.previous_month_block(company, july.period_obj.next())
+    PayrollRun.objects.filter(pk=july.pk).update(status=PayrollRun.FINALIZED)
+    assert runs.previous_month_block(company, july.period_obj.next()) == ""
+    assert runs.open_month(company, "2025-08", maker).period == "2025-08"

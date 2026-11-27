@@ -130,6 +130,24 @@ def effective_day_count(run: PayrollRun) -> dict:
 
 
 @transaction.atomic
+def previous_month_block(company: Company, p: Period) -> str:
+    """Why ``p`` cannot be opened yet, or "" if it can. Months are run in order, and a month opens only once every
+    earlier month is final: its pay and TDS feed this month's TDS, so they must be settled first.
+    The company's first month on the system has no earlier month and can always be opened."""
+    earlier = PayrollRun.objects.filter(company=company, run_type=PayrollRun.TYPE_REGULAR, period__lt=str(p)).exclude(
+        status=PayrollRun.CANCELLED)
+    if not earlier.exists():
+        return ""
+    unfinished = earlier.exclude(status=PayrollRun.FINALIZED).order_by("period").first()
+    if unfinished:
+        return (f"{p.label} can be opened once {unfinished.period_obj.label} is done. "
+                f"{unfinished.period_obj.label} is {unfinished.get_status_display().lower()}; it needs to be approved and final first.")
+    prev = p.prev()
+    if not earlier.filter(period=str(prev)).exists():
+        return f"Run {prev.label} first: months are run in order, one after another."
+    return ""
+
+
 def open_month(company: Company, period: str, user, snapshot: DataSnapshot | None = None,
                knowledge_date: date | None = None, note: str = "", require_fresh_data: bool = False,
                day_count=None) -> PayrollRun:
@@ -141,6 +159,9 @@ def open_month(company: Company, period: str, user, snapshot: DataSnapshot | Non
     live = PayrollRun.objects.filter(company=company, period=str(p), run_type=PayrollRun.TYPE_REGULAR).exclude(status=PayrollRun.CANCELLED).first()
     if live:
         raise RuleViolation(f"{p.label} is already open (run #{live.pk}, {live.get_status_display().lower()}).", code="exists")
+    blocked = previous_month_block(company, p)
+    if blocked:
+        raise RuleViolation(blocked, code="previous_not_done")
     if snapshot is None:
         snapshot = DataSnapshot.objects.filter(company=company, status="approved").order_by("-reviewed_at", "-id").first()
         if snapshot is None:

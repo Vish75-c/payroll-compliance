@@ -136,6 +136,9 @@ function MonthView({ data, canOpen, opening, setOpening, openForm }) {
         {!run && selected === data.next_period && canOpen && !opening && <button className="primary" onClick={() => setOpening(true)}>Open {label}</button>}
       </div>
       {opening && selected === data.next_period && openForm}
+      {!run && selected === data.next_period && data.next_blocked && (
+        <div className="mv-blocked" role="status"><span aria-hidden="true">🔒</span><span>{data.next_blocked}</span></div>
+      )}
 
       {run ? (
         <div className="mv-grid">
@@ -224,7 +227,8 @@ export default function Overview({ company, me }) {
   const latest = data.months.find((m) => m.regular?.net_pay);
   const before = latest && data.months.slice(data.months.indexOf(latest) + 1).find((m) => m.regular?.net_pay);
   const latestDelta = latest && before ? Number(latest.regular.net_pay) - Number(before.regular.net_pay) : null;
-  const canOpenNext = isMaker && data.next_period && !data.months.some((m) => m.period === data.next_period && m.regular);
+  // A month opens only once every earlier month is final (the server says why not in next_blocked).
+  const canOpenNext = isMaker && data.next_period && !data.next_blocked && !data.months.some((m) => m.period === data.next_period && m.regular);
   const waiting = data.awaiting_approval[0];
   const firstName = (me.user.name || "").split(" ")[0];
 
