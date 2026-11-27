@@ -430,6 +430,17 @@ function ChangesSection({ run, onChange }) {
             {c.status === "confirmed" && <div className="muted small">Confirmed by {c.decided_by?.name} · {when(c.decided_at)}{run.can.add_changes && <> · <button className="ghost small" onClick={() => decide(c.id, "discard")}>remove</button></>}</div>}
           </div>
         ))}
+        {run.changes.length === 0 && (
+          <div className="no-changes">
+            <span className="no-changes-icon" aria-hidden="true">✓</span>
+            <div>
+              <b>No changes were made during this month.</b>
+              <div className="muted small">{run.can.add_changes
+                ? "Pay is worked out from the HR data only. Add a bonus, deduction or unpaid day above if one is needed."
+                : "Pay was worked out from the HR data only: no bonus, deduction or unpaid day was added by hand."}</div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

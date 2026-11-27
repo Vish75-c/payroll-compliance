@@ -1122,3 +1122,8 @@ tr.subtotal td { font-weight: 600; background: var(--panel-2); border-bottom: 1.
 .help-topic { margin-bottom: 14px; scroll-margin-top: 16px; }
 .help-topic h2 { margin-top: 0; }
 @media (prefers-reduced-motion: reduce) { .info-tip::after { transition: none; } }
+/* "No changes were made during this month" in a month's Changes section */
+.no-changes { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; margin-top: 10px; border: 1px dashed var(--line-strong); border-radius: 14px; background: #f7f8f9; }
+.no-changes:first-child { margin-top: 0; }
+.no-changes-icon { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 50%; background: rgba(21, 190, 83, .12); color: #0f7a35; font-weight: 700; }
+.no-changes b { display: block; margin-bottom: 2px; }

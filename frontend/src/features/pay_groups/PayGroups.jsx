@@ -100,7 +100,8 @@ export function PayGroupsCard({ company, me }) {
       <div className="card-head">
         <div>
           <div className="title-row"><h2>Pay groups</h2></div>
-          <p className="muted small" style={{ margin: 0 }}>{monthLabel(data.period)} · <a href="#/employees">Employees</a></p>
+          <p className="muted small" style={{ margin: 0 }}>{monthLabel(data.period)}
+            {data.groups.length > 1 && isMaker && <> · <a href="#/rules/pay-groups">Move employees to another pay group</a></>}</p>
         </div>
         {isMaker && <button className="small" onClick={() => setEditing("new")}>+ New pay group</button>}
       </div>
@@ -162,7 +163,9 @@ export default function EmployeesPage({ company, me }) {
     <div>
       <div className="topbar">
         <div>
-          <div className="title-row"><h1>Employees</h1></div>
+          <a href="#/rules" className="small">← Rules &amp; settings</a>
+          <div className="title-row"><h1>Move employees between pay groups</h1></div>
+          <p className="muted small" style={{ marginTop: 0 }}>Everyone comes from the latest reviewed HR data. A move applies from the month you choose; payroll still uses each month's own HR data.</p>
         </div>
         <Field label="Month"><input type="month" value={period || data.period} onChange={(e) => setPeriod(e.target.value)} /></Field>
       </div>

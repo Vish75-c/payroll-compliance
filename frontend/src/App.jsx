@@ -24,7 +24,6 @@ const NAV = [
   ["/", "Overview", "◎"],
   ["/data", "HR data", "⇩", 1],
   ["/months", "Payroll months", "▦", 2],
-  ["/employees", "Employees", "☷"],
   ["/dues", "Government dues", "⌛"],
   ["/rules", "Rules & settings", "§"],
   ["/ai", "AI log", "✦"],
@@ -91,8 +90,9 @@ function PayrollApp({ me, signOut, route }) {
   else if (parts[0] === "data" && parts[1] === "snapshot") page = <SnapshotPage key={parts[2]} snapshotId={Number(parts[2])} me={me} />;
   else if (parts[0] === "data") page = <DataSources company={company} me={me} />;
   else if (parts[0] === "dues") page = me.roles.includes("checker") ? <Dues company={company} me={me} /> : <Banner kind="warn">Government dues are shown to the finance head only.</Banner>;
+  // Moving people between pay groups by hand: reached from Rules & settings, only when there is more than one group.
+  else if (parts[0] === "rules" && parts[1] === "pay-groups") page = <EmployeesPage company={company} me={me} />;
   else if (parts[0] === "rules") page = <Rules company={company} me={me} />;
-  else if (parts[0] === "employees") page = <EmployeesPage company={company} me={me} />;
   else if (parts[0] === "help") page = <HelpPage />;
   else if (parts[0] === "ai") page = <AILog company={company} />;
   else page = <Banner kind="warn">Page not found.</Banner>;
