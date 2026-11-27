@@ -67,6 +67,9 @@ COMPANY_DEFAULTS: dict[str, dict] = {
     # month, unpaid days counted from ``start_day`` of the month before. "shifted": salary and unpaid days both
     # counted from ``start_day`` of the month before (with 26, November is 26 Oct to 25 Nov).
     "pay_cycle": {"mode": "calendar", "start_day": 1},
+    # The day of the month being paid after which people still waiting for HR data are put on hold, so everyone
+    # else is paid on time. A day past the month's end means its last day. Never used in a calculation.
+    "cut_off": {"day": 28},
 }
 
 COMPANY_KEYS = {
@@ -81,6 +84,7 @@ COMPANY_KEYS = {
     "work_calendar": "Working days and holidays (for attendance)",
     "labour_codes": "Government rules: Labour Codes",
     "pay_cycle": "Pay cycle",
+    "cut_off": "Cut-off for missing HR data",
 }
 
 PAY_CYCLE_MODES = ["calendar", "attendance_cutoff", "shifted"]
@@ -408,6 +412,18 @@ def _v_labour_codes(p, e):
         e.append("'apply' must be 'as_government' or 'not_applied'")
 
 
+def _v_cut_off(p, e):
+    day = _num(p, "day", e, minimum=1, maximum=31)
+    if day is not None and day != day.to_integral_value():
+        e.append("'day' must be a whole day of the month")
+
+
+def cut_off_date(versions: list[dict], period: Period):
+    """The cut-off day of ``period``: the setting's day, or the month's last day if the month is shorter."""
+    day = int(d(resolve_company(versions, "cut_off", period).get("day", 28)))
+    return period.start.replace(day=min(day, period.end.day))
+
+
 def _v_salary_structure(p, e):
     comps = p.get("components")
     if not isinstance(comps, list) or not comps:
@@ -463,6 +479,7 @@ _VALIDATORS = {
     "work_calendar": _v_work_calendar,
     "labour_codes": _v_labour_codes,
     "pay_cycle": _v_pay_cycle,
+    "cut_off": _v_cut_off,
 }
 
 

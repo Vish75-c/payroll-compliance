@@ -304,3 +304,17 @@ def test_a_state_without_professional_tax_is_valid_data_without_slabs():
     assert P.validate_payload("professional_tax", {"levied": False, "state_name": "Delhi"}) == []
     assert P.validate_payload("professional_tax", {"levied": False, "slabs": [{"min": "0", "amount": "200"}]})
     assert P.validate_payload("professional_tax", {"levied": "no"})
+
+
+def test_cut_off_setting_is_checked_and_falls_on_a_day_of_the_month():
+    from payroll_engine.periods import Period
+    from payroll_engine.policies import cut_off_date, validate_payload
+
+    assert validate_payload("cut_off", {"day": 28}) == []
+    assert validate_payload("cut_off", {"day": 0}) and validate_payload("cut_off", {"day": 32}) and validate_payload("cut_off", {"day": 2.5})
+    assert cut_off_date([], Period.parse("2025-07")).isoformat() == "2025-07-28"  # the default
+    company = [{"id": "c1", "key": "cut_off", "scope": "company", "jurisdiction": "", "effective_from": "2025-04-01",
+                "payload": {"day": 31}, "title": "", "recorded_at": ""}]
+    assert cut_off_date(company, Period.parse("2025-02")).isoformat() == "2025-02-28"  # a short month: its last day
+    assert cut_off_date(company, Period.parse("2025-07")).isoformat() == "2025-07-31"
+

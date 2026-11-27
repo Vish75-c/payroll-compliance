@@ -152,3 +152,19 @@ def test_a_month_opens_only_after_the_months_before_are_final(demo):
     PayrollRun.objects.filter(pk=july.pk).update(status=PayrollRun.FINALIZED)
     assert runs.previous_month_block(company, july.period_obj.next()) == ""
     assert runs.open_month(company, "2025-08", maker).period == "2025-08"
+
+
+def test_run_employee_keeps_one_state_per_person_per_month(demo):
+    from django.db import IntegrityError, transaction
+
+    from payroll.models import RunEmployee
+
+    company, _ = demo
+    run = runs.open_month(company, "2025-04", setup.system_user("maker"))
+    row = RunEmployee.objects.create(run=run, employee_code="BL016", status=RunEmployee.WAITING, missing=["work_state"])
+    assert row.get_status_display() == "Waiting for HR data" and not row.held_by_system
+    row.status = RunEmployee.ON_HOLD
+    row.save()
+    assert row.held_by_system  # on hold with no person named: the cut-off did it
+    with pytest.raises(IntegrityError), transaction.atomic():
+        RunEmployee.objects.create(run=run, employee_code="BL016")

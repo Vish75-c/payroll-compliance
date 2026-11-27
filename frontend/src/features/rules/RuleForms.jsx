@@ -231,6 +231,14 @@ export function RuleForm({ ruleKey, value, onChange }) {
       return <WorkCalendarForm v={v} onChange={onChange} />;
     case "pay_cycle":
       return <div className="grid3"><PayCycleFields v={v} onChange={onChange} /></div>;
+    case "cut_off":
+      return (
+        <div className="grid3">
+          <Field label="Cut-off day of the month" hint="People still missing HR data on this day are put on hold; everyone else is paid on time.">
+            <input inputMode="numeric" value={v.day ?? ""} onChange={(e) => set("day")(e.target.value === "" ? undefined : Number(e.target.value))} />
+          </Field>
+        </div>
+      );
     default:
       return <p className="muted small">This setting has no form yet. Use “Edit as JSON” below.</p>;
   }
@@ -557,6 +565,11 @@ export function RuleSummary({ ruleKey, payload }) {
         label(PAY_CYCLES, v.mode || "calendar") + ".",
         v.mode && v.mode !== "calendar" && `${cycleExample(v)}${v.mode === "attendance_cutoff" ? " for unpaid days; salary for the calendar month" : ""}.`,
         "Fixed once a month is final.",
+      ]} />;
+    case "cut_off":
+      return <Lines items={[
+        `On day ${v.day ?? 28} of the month (or its last day), people still missing HR data are put on hold.`,
+        "Everyone else is paid on time; the held salary is paid with a later month, once.",
       ]} />;
     case "work_calendar":
       return <Lines items={[

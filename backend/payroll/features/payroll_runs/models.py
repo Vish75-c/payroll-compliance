@@ -106,6 +106,60 @@ class PayrollRun(models.Model):
         return f"{self.company.code} {self.period} #{self.pk} ({self.status})"
 
 
+class RunEmployee(models.Model):
+    """Where one employee stands in one payroll month: waiting for HR data, ready, paid, on hold, or paid later.
+
+    The money stays in the month's result; this row only says whether the person is in it. It is the record the
+    rules read (submit, calculate, finalise, the next month's arrears), and it outlives the month's workflow.
+    """
+
+    WAITING = "waiting"
+    READY = "ready"
+    PAID = "paid"
+    ON_HOLD = "on_hold"
+    PAID_LATER = "paid_later"
+    STATUS = [
+        (WAITING, "Waiting for HR data"),
+        (READY, "Ready"),
+        (PAID, "Paid"),
+        (ON_HOLD, "On hold"),
+        (PAID_LATER, "Paid later"),
+    ]
+    # Fields whose absence makes a person wait instead of blocking the whole HR data.
+    MISSING_FIELDS = {
+        "salary": "Salary",
+        "date_of_joining": "Date of joining",
+        "work_state": "Work state",
+        "gender": "Gender",
+    }
+
+    run = models.ForeignKey(PayrollRun, on_delete=models.CASCADE, related_name="employee_states")
+    employee_code = models.CharField(max_length=50)
+    status = models.CharField(max_length=20, choices=STATUS, default=READY)
+    missing = models.JSONField(default=list, blank=True, help_text="Fields missing in the HR data, e.g. [\"work_state\"]")
+    held_at = models.DateTimeField(null=True, blank=True)
+    held_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+                                help_text="Empty when the system held the person at the cut-off")
+    hold_reason = models.TextField(blank=True)
+    paid_in_run = models.ForeignKey(PayrollRun, null=True, blank=True, on_delete=models.SET_NULL, related_name="held_months_paid",
+                                    help_text="The later month that paid this held month's salary as arrears")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["run", "employee_code"]
+        constraints = [
+            models.UniqueConstraint(fields=["run", "employee_code"], name="one_state_per_employee_per_run"),
+        ]
+        indexes = [models.Index(fields=["employee_code", "status"], name="run_employee_code_status")]
+
+    @property
+    def held_by_system(self) -> bool:
+        return self.status in (self.ON_HOLD, self.PAID_LATER) and self.held_by_id is None
+
+    def __str__(self):
+        return f"{self.run} {self.employee_code} ({self.status})"
+
+
 class ChangeRequest(models.Model):
     """A change typed in plain English. The AI proposes; a person confirms; the engine calculates."""
 

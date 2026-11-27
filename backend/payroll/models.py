@@ -6,7 +6,7 @@ from .features.dues.models import StatutoryDue
 from .features.hr_data.models import Connector, DataSnapshot, Employee, FieldMapping, IngestionJob, RawTable
 from .features.onboarding.models import OpeningBalance
 from .features.pay_groups.models import EmployeePayGroup, PayGroup, PayGroupCycle
-from .features.payroll_runs.models import AbsenceDismissal, ChangeRequest, PayrollRun, RunEvent
+from .features.payroll_runs.models import AbsenceDismissal, ChangeRequest, PayrollRun, RunEmployee, RunEvent
 from .features.rules.models import PolicyVersion
 
 __all__ = [
@@ -26,6 +26,7 @@ __all__ = [
     "PayrollRun",
     "PolicyVersion",
     "RawTable",
+    "RunEmployee",
     "RunEvent",
     "StatutoryDue",
 ]
