@@ -90,6 +90,14 @@ def _check_can_hold(run: PayrollRun, user):
         raise RuleViolation("Only a regular month has people on hold.")
     if run.is_locked:
         raise RuleViolation(f"This month is {run.get_status_display().lower()}; nobody can be put on hold now.")
+    if last_month_of_the_year(run):
+        raise RuleViolation(f"{run.period_obj.label} is the last month of the financial year, so nobody can be put on hold: "
+                            "a held salary would be paid in the next year, after the year's tax and Form 16 are closed. "
+                            "Wait for the HR data, then calculate.", code="year_end")
+
+
+def last_month_of_the_year(run: PayrollRun) -> bool:
+    return run.period_obj == run.period_obj.fy_last
 
 
 @transaction.atomic
@@ -121,8 +129,8 @@ def hold_waiting_at_cut_off(run_id: int, today: date | None = None) -> list[RunE
         return []
     today = today or timezone.localdate()
     cut_off = engine_policies.cut_off_date(versions_for(run.company), run.period_obj)
-    if today < cut_off:
-        return []
+    if today < cut_off or last_month_of_the_year(run):
+        return []  # March: nobody is held; the year closes only once everyone is paid
     held = []
     for row in waiting(run):
         row.status, row.held_at, row.held_by = RunEmployee.ON_HOLD, timezone.now(), None
@@ -137,8 +145,18 @@ def hold_waiting_at_cut_off(run_id: int, today: date | None = None) -> list[RunE
 
 
 def mark_paid(run: PayrollRun) -> int:
-    """The month is final: everyone ready was paid in it."""
-    return run.employee_states.filter(status=RunEmployee.READY).update(status=RunEmployee.PAID, updated_at=timezone.now())
+    """The month is final: everyone ready was paid in it, and every held salary it paid is now paid (once)."""
+    paid = run.employee_states.filter(status=RunEmployee.READY).update(status=RunEmployee.PAID, updated_at=timezone.now())
+    held_paid = {(e["code"], a["period"]) for e in (run.result or {}).get("employees", [])
+                 for a in e.get("facts", {}).get("arrears_detail", []) if a.get("held")}
+    for row in RunEmployee.objects.filter(run__company=run.company, run__run_type=PayrollRun.TYPE_REGULAR, run__period__lt=run.period,
+                                          status=RunEmployee.ON_HOLD, paid_in_run__isnull=True).select_related("run"):
+        if (row.employee_code, row.run.period) in held_paid:
+            row.status, row.paid_in_run = RunEmployee.PAID_LATER, run
+            row.save()
+            record(row.run, None, "held_salary_paid", f"{row.employee_code}: the {row.run.period_obj.label} salary held then is paid "
+                   f"in {run.period_obj.label}.", employee_code=row.employee_code, paid_in_run=run.pk)
+    return paid
 
 
 def present(run: PayrollRun, user=None) -> dict:

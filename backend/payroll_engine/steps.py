@@ -194,7 +194,7 @@ def arrears(c: EmployeeCalc):
             children.append(
                 Line(
                     code=f"arrears.{a.period}",
-                    label=f"Arrears for {a.period.label}",
+                    label=f"Salary for {a.period.label} (was on hold)" if a.held else f"Arrears for {a.period.label}",
                     amount=a.total,
                     category=INFO,
                     formula=f"{inr(a.rate_after)} − {inr(a.rate_before)} already paid = {inr(a.total)}",
@@ -205,6 +205,7 @@ def arrears(c: EmployeeCalc):
             )
         months_txt = ", ".join(a.period.label.split()[0] for a in months)
         late_days = any("reported after it was paid" in a.explanation or "counted by mistake" in a.explanation for a in months)
+        held = [a for a in months if a.held]
         c.lines.append(
             Line(
                 code="arrears",
@@ -212,7 +213,10 @@ def arrears(c: EmployeeCalc):
                 amount=total,
                 category=EARNING,
                 formula=" + ".join(inr(a.total) for a in months) + f" = {inr(total)}",
-                reason=(f"{months_txt} {'was' if len(months) == 1 else 'were'} worked out again after being paid "
+                reason=(f"Salary for {', '.join(a.period.label for a in held)}, held then for missing HR data, is paid now"
+                        + (" with the other months' revisions." if len(held) < len(months) else ".")
+                        if held else
+                        f"{months_txt} {'was' if len(months) == 1 else 'were'} worked out again after being paid "
                         "(a salary change or unpaid days reported late); the difference is paid now, or taken back if it is negative."
                         if late_days or total < 0 else
                         f"Salary for {months_txt} was revised after it was paid. Each month is worked out again with the revised salary and the difference is paid now."),
@@ -567,7 +571,8 @@ def facts(c: EmployeeCalc) -> dict:
         "esi_covered": c.esi.get("covered", False),
         "arrears_detail": [
             {"period": str(a.period), "components": {k: to_str(v) for k, v in a.components.items()}, "total": to_str(a.total),
-             "pf_employee": to_str(a.pf_employee), "pf_employer": to_str(a.pf_employer), "eps_employer": to_str(a.eps_employer)}
+             "pf_employee": to_str(a.pf_employee), "pf_employer": to_str(a.pf_employer), "eps_employer": to_str(a.eps_employer),
+             **({"held": True} if a.held else {})}
             for a in c.arrears_months
         ],
         "gross": to_str(c.gross),

@@ -1154,3 +1154,9 @@ tr.subtotal td { font-weight: 600; background: var(--panel-2); border-bottom: 1.
 .shell .side .workspace-signout:hover:not(:disabled) { color: #fff; background: rgba(192, 57, 43, .85); border-color: transparent; transform: none; }
 .side-user-busy { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .25); border-top-color: #fff; animation: side-spin .8s linear infinite; }
 @keyframes side-spin { to { transform: rotate(360deg); } }
+
+/* People waiting for HR data or on hold: an amber note on the Overview, and the box on the run page. */
+.mv-waiting { background: var(--warn-soft); color: var(--ink); border-color: transparent; }
+.mv-waiting a { font-weight: 600; }
+.card.hold-box { border-left: 4px solid var(--warn); }
+.hold-box h4 { font-size: 13px; color: var(--ink-2); }

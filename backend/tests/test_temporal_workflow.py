@@ -47,8 +47,13 @@ class FakeSteps:
                 return status
             return run
 
+        @activity.defn(name="payroll.month_people")
+        async def month_people(run_id: int) -> dict:
+            # No people: these tests are about the month's own steps (the people's workflows have their own test).
+            return {"company_code": "TEST", "codes": [], "cut_off_at": 4102444800.0}  # cut-off in 2100: never reached here
+
         return [step("calculate", "calculated"), step("submit", "submitted"), step("approve", "approved"),
-                step("reject", "rejected"), step("cancel", "cancelled"), step("finalize", "final")]
+                step("reject", "rejected"), step("cancel", "cancelled"), step("finalize", "final"), month_people]
 
 
 def cmd(name: str, actor: int = 1, request_id: str | None = None) -> Command:

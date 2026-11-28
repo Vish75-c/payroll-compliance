@@ -140,6 +140,18 @@ function MonthView({ data, canOpen, opening, setOpening, openForm }) {
         <div className="mv-blocked" role="status"><span aria-hidden="true">🔒</span><span>{data.next_blocked}</span></div>
       )}
 
+      {run && (run.people_waiting > 0 || run.people_on_hold > 0) && (
+        <div className="mv-blocked mv-waiting" role="status">
+          <span aria-hidden="true">⏳</span>
+          <span>
+            {[run.people_waiting > 0 && `${run.people_waiting} waiting for HR data`, run.people_on_hold > 0 && `${run.people_on_hold} on hold`].filter(Boolean).join(" · ")}
+            {": not in this month's pay. "}
+            {run.people_on_hold > 0 && run.status === "finalized" ? "The next month opens once HR adds what is missing. " : ""}
+            <a href={`#/runs/${run.id}`}>See who</a>
+          </span>
+        </div>
+      )}
+
       {run ? (
         <div className="mv-grid">
           <PayoutDonut month={month} />
@@ -161,7 +173,9 @@ function MonthView({ data, canOpen, opening, setOpening, openForm }) {
       ) : (
         <div className="card mv-empty">
           <b>{selected === data.next_period ? `${label} is the next month to run.` : `${label} has not been run.`}</b>
-          <span className="muted">{selected === data.next_period ? "Open it to read the HR data and work out the month." : "Pick a month with a coloured dot to see its payout."}</span>
+          <span className="muted">{selected === data.next_period
+            ? (data.next_blocked ? "It can be opened once the note above is cleared." : "Open it to read the HR data and work out the month.")
+            : "Pick a month with a coloured dot to see its payout."}</span>
         </div>
       )}
     </>

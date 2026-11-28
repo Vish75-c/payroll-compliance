@@ -82,7 +82,9 @@ export function DataSources({ company, me }) {
               <thead><tr><th>#</th><th>Source</th><th>Employees</th><th>Checks</th><th>Status</th><th></th></tr></thead>
               <tbody>{snaps.data.map((s) => (
                 <tr key={s.id}>
-                  <td>{s.id}</td><td>{s.source_system}<div className="muted small">{when(s.created_at)}</div></td>
+                  <td>{s.id}</td><td>{s.source_system}<div className="muted small">{when(s.created_at)}</div>
+                    {s.read_for_waiting?.length > 0 && <div className="small"><span className="chip info">Read automatically</span> for {s.read_for_waiting.join(", ")}</div>}
+                    {Object.keys(s.incomplete || {}).length > 0 && <div className="small"><span className="chip warn">{Object.keys(s.incomplete).length} missing data</span></div>}</td>
                   <td>{s.employee_count}</td>
                   <td>{s.errors ? <span className="chip bad">{s.errors} errors</span> : s.warnings ? <span className="chip warn">{s.warnings} warnings</span> : <span className="chip ok">OK</span>}</td>
                   <td><StatusChip status={s.status === "approved" ? "approved_snapshot" : s.status} label={s.status_label} /></td>

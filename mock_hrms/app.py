@@ -15,6 +15,9 @@ Environment:
     MOCK_HRMS_LAYOUT          "flat" (default: each list is one menu link away) or "nested" (like Keka: a menu item opens
                               a section, a tab inside it shows the list without changing the address, and an employee's
                               joining date, gender and location sit under a "Job" tab on their own page)
+    MOCK_HRMS_MISSING         people whose details HR has not entered yet, e.g. "BL004:location,BL012:gender" (fields:
+                              location, gender, doj). They show blank until HR fills them in on /hr/missing (a page for
+                              the demo, not in the menu, so the agent never reads it).
 """
 from __future__ import annotations
 
@@ -33,6 +36,29 @@ ROOT = Path(__file__).resolve().parent.parent
 USERS = {"hr.admin": "demo123"}
 SESSIONS: dict[str, dict] = {}
 SEED: dict = {}
+MISSING: dict[str, set[str]] = {}  # code -> details HR has not entered yet (shown blank)
+DETAILS = {"location": "Location", "gender": "Gender", "doj": "Joined On"}
+
+
+def missing_from(text: str) -> dict[str, set[str]]:
+    out: dict[str, set[str]] = {}
+    for item in filter(None, (x.strip() for x in (text or "").split(","))):
+        code, _, field = item.partition(":")
+        if field not in DETAILS:
+            raise SystemExit(f"MOCK_HRMS_MISSING: unknown detail '{field}' in '{item}' (use {', '.join(DETAILS)})")
+        out.setdefault(code.strip(), set()).add(field)
+    return out
+
+
+def detail(e: dict, field: str) -> str:
+    """One of a person's details as the HR tool shows it: blank while HR has not entered it."""
+    if field in MISSING.get(e["code"], ()):
+        return ""
+    if field == "gender":
+        return "Female" if e["gender"] == "F" else "Male"
+    if field == "doj":
+        return long_date(e["doj"])
+    return e["location"]
 MONTH_ABBR = ["", "Jan.", "Feb.", "March", "April", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec."]
 
 
@@ -206,8 +232,8 @@ def app(environ, start_response):
             heads = "<th>Emp Code</th><th>Full Name</th><th>Gender</th><th>Location</th><th>Joined On</th><th>Last Working Day</th><th>Team</th>"
             rows = "".join(
                 f"<tr><td><a href='/people/{e['code']}'>{e['code']}</a></td><td>{html.escape(e['name'])}</td>"
-                f"<td>{'Female' if e['gender'] == 'F' else 'Male'}</td><td>{html.escape(e['location'])}</td>"
-                f"<td>{long_date(e['doj'])}</td><td>{long_date(e['doe']) if e.get('doe') else ''}</td><td>{html.escape(e['department'])}</td></tr>" for e in chunk)
+                f"<td>{detail(e, 'gender')}</td><td>{html.escape(detail(e, 'location'))}</td>"
+                f"<td>{detail(e, 'doj')}</td><td>{long_date(e['doe']) if e.get('doe') else ''}</td><td>{html.escape(e['department'])}</td></tr>" for e in chunk)
         prev = f"<a href='/people?page={n - 1}'>« Prev</a>" if n > 1 else "<span class='muted'>« Prev</span>"
         nxt = f"<a href='/people?page={n + 1}' rel='next'>Next ›</a>" if n < pages else "<span class='muted disabled'>Next ›</span>"
         first, last = (n - 1) * size + 1, (n - 1) * size + len(chunk)
@@ -221,8 +247,8 @@ def app(environ, start_response):
         if not e:
             return respond("404 Not Found", page("Not found", "<p>No such person.</p>", user))
         if len(parts) == 3 and parts[2] == "job":  # the Job tab's content, loaded when the tab is clicked
-            fields = [("Gender", "Female" if e["gender"] == "F" else "Male"), ("Location", e["location"]),
-                      ("Joined On", long_date(e["doj"])), ("Last Working Day", long_date(e["doe"]) if e.get("doe") else "")]
+            fields = [("Gender", detail(e, "gender")), ("Location", detail(e, "location")),
+                      ("Joined On", detail(e, "doj")), ("Last Working Day", long_date(e["doe"]) if e.get("doe") else "")]
             return respond("200 OK", "".join(f"<div class='field'><span class='label'>{k}</span> <span class='value'>{html.escape(v)}</span></div>"
                                              for k, v in fields))
         about = f"""<dl><dt>Emp Code</dt><dd>{e['code']}</dd><dt>Designation</dt><dd>{html.escape(e['designation'])}</dd>
@@ -262,6 +288,28 @@ def app(environ, start_response):
 <p>Total: {len(SEED['leave'])} requests</p>"""
         return show("Time Off", body)
 
+    if path == "/hr/missing":
+        # For the demo: HR enters the details still missing. Not in the menu, so the agent never reads this page.
+        if method == "POST":
+            size = int(environ.get("CONTENT_LENGTH") or 0)
+            form = parse_qs(environ["wsgi.input"].read(size).decode())
+            code, field = form.get("code", [""])[0], form.get("field", [""])[0]
+            MISSING.get(code, set()).discard(field)
+            if code in MISSING and not MISSING[code]:
+                del MISSING[code]
+            return redirect("/hr/missing?saved=" + quote(f"{code} {DETAILS.get(field, field).lower()}"))
+        names = {e["code"]: e for e in SEED["employees"]}
+        rows = "".join(
+            f"<tr><td>{code}</td><td>{html.escape(names[code]['name'])}</td><td>{DETAILS[field]}</td><td>"
+            f"<form method='post' action='/hr/missing'><input type='hidden' name='code' value='{code}'>"
+            f"<input type='hidden' name='field' value='{field}'><button type='submit'>Enter it</button></form></td></tr>"
+            for code in sorted(MISSING) for field in sorted(MISSING[code]) if code in names)
+        saved = query.get("saved", [""])[0]
+        body = ((f"<p>Saved: {html.escape(saved)}. The payroll's agent sees it on its next read.</p>" if saved else "")
+                + (f"<table><thead><tr><th>Emp Code</th><th>Name</th><th>Missing</th><th></th></tr></thead><tbody>{rows}</tbody></table>"
+                   if rows else "<p>Every person's details are complete.</p>"))
+        return show("Details still to enter", body)
+
     if path in ("/holidays", "/payslips"):
         return respond("200 OK", page(path.strip("/").title(), "<p class='muted'>Nothing here for this demo.</p>", user))
 
@@ -281,6 +329,10 @@ def main():
     parser.add_argument("--seed", default=str(ROOT / "data" / "brickline" / "seed.json"))
     args = parser.parse_args()
     SEED.update(json.loads(Path(args.seed).read_text()))
+    MISSING.update(missing_from(os.environ.get("MOCK_HRMS_MISSING", "")))
+    if MISSING:
+        print("Details HR has not entered yet: " + ", ".join(f"{c} ({', '.join(sorted(f))})" for c, f in sorted(MISSING.items()))
+              + " (enter them on /hr/missing)", flush=True)
     print(f"Demo HRMS on http://{args.host}:{args.port}  (login hr.admin / demo123, variant {variant()}, "
           f"session expires after {session_limit() or 'no'} page views)", flush=True)
     from socketserver import ThreadingMixIn

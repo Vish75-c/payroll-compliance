@@ -129,6 +129,22 @@ def send(run: PayrollRun, command: str, user, note: str = "") -> dict:
     return {"mode": "local", "queued": False}
 
 
+def notify_data_changed(run: PayrollRun) -> None:
+    """The month's HR data was switched or someone was put on hold: each person's workflow checks its state again.
+    Best effort: the database already holds the new state; the workflows only react to it sooner."""
+    if run.workflow_backend != "temporal" or not run.workflow_id:
+        return
+
+    async def go():
+        client = await _client()
+        await client.get_workflow_handle(run.workflow_id).signal(PayrollMonthWorkflow.data_changed)
+
+    try:
+        asyncio.run(go())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not tell workflow %s that data changed: %s", run.workflow_id, exc)
+
+
 def describe(run: PayrollRun) -> dict:
     info = {"backend": run.workflow_backend or "local", "workflow_id": run.workflow_id, "temporal_ui": ""}
     if run.workflow_backend == "temporal" and run.workflow_id:

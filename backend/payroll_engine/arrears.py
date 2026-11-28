@@ -23,6 +23,7 @@ class ArrearsMonth:
     rate_before: Decimal
     rate_after: Decimal
     eps_employer: Decimal = ZERO
+    held: bool = False  # the month's salary was not paid then: the person was on hold
 
 
 def compute_arrears(emp: dict, period: Period, versions: list[dict]) -> tuple[list[ArrearsMonth], pol.Resolved, list[dict]]:
@@ -30,18 +31,24 @@ def compute_arrears(emp: dict, period: Period, versions: list[dict]) -> tuple[li
 
     Each past month is recalculated with *its own* rules and settings (stored with that
     month), so arrears never re-open a rule decision that was made at the time.
+
+    A month marked ``held`` was not paid at all (the person was on hold for missing HR data). It is unpaid salary,
+    not a revision, so it is paid whatever the arrears setting says and however far back it is.
     """
     policy = pol.resolve_company(versions, "arrears_policy", period)
     pf_policy = pol.resolve_company(versions, "pf_policy", period)
-    if not policy.get("enabled", True):
-        return [], policy, []
+    enabled = policy.get("enabled", True)
     lookback = int(policy.get("lookback_months", 12))
     out: list[ArrearsMonth] = []
     warnings: list[dict] = []
     for basis in sorted(emp.get("arrears_basis") or [], key=lambda b: b["period"]):
         past = Period.parse(basis["period"])
-        if not (past < period) or past.months_until(period) > lookback:
+        held = bool(basis.get("held"))
+        if not (past < period) or (not held and (not enabled or past.months_until(period) > lookback)):
             continue
+        if held and basis.get("leave_covered") is False:
+            warnings.append({"level": "warning", "message": f"The leave in the HR data starts after {past.label}, so unpaid days "
+                             f"in {past.label} (paid now: the person was on hold) may be missing. Read leave from {past.start:%d %b %Y}."})
         paid = basis["paid"]
         paid_pf_emp = d(paid.get("pf_employee"))
         paid_pf_er = d(paid.get("pf_employer"))
@@ -57,6 +64,12 @@ def compute_arrears(emp: dict, period: Period, versions: list[dict]) -> tuple[li
             past_emp["pay_window"] = basis["pay_window"]
         rate, _, backfilled = contracted_rate(emp.get("compensation") or [], pay_dates_of(past_emp, past, past_versions).salary,
                                               parse_date(past_emp.get("date_of_joining")))
+        if held and (not rate or backfilled):
+            # The held month cannot be paid without its salary: stop the month rather than lose or guess the pay.
+            warnings.append({"level": "error", "message": f"{past.label} was not paid (on hold), but the HR data has no salary "
+                             f"for {past.label}: the salary on record starts later. Ask HR to enter the salary from "
+                             f"{past.start:%d %b %Y} (or the joining date), read the HR data again, then calculate."})
+            continue
         if not rate or backfilled:
             # The salary for that month is not in the HR data, so it cannot be recalculated.
             # Paying "arrears" against a guessed salary would be wrong: skip and say so.
@@ -108,6 +121,11 @@ def compute_arrears(emp: dict, period: Period, versions: list[dict]) -> tuple[li
             )
         elif earn.unpaid_days:
             explanation += f" (same {to_str(earn.unpaid_days)} unpaid days as before)"
+        if held:
+            explanation = (f"{past.label} salary, not paid then: on hold" + (f" ({basis['hold_reason'].rstrip('.')})" if basis.get("hold_reason") else "")
+                           + f". Worked out now with {past.label}'s own rules: earned {inr(new_gross)}"
+                           + (f", {to_str(earn.unpaid_days)} unpaid days" if earn.unpaid_days else "")
+                           + (f", {inr(paid_gross)} of it already paid" if paid_gross else ""))
         out.append(
             ArrearsMonth(
                 period=past,
@@ -119,6 +137,7 @@ def compute_arrears(emp: dict, period: Period, versions: list[dict]) -> tuple[li
                 rate_before=paid_gross,
                 rate_after=new_gross,
                 eps_employer=eps_er,
+                held=held,
             )
         )
     return out, policy, warnings

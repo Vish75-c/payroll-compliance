@@ -90,6 +90,7 @@ def run_action(request, run_id, action):
         if not latest:
             raise RuleViolation("No reviewed HR data.")
         run_service.use_snapshot(run.pk, latest, request.user, require_fresh_data=True)
+        dispatch.notify_data_changed(run)
         outcome = {"mode": "direct", "queued": False}
     elif action == "day-count":
         run_service.set_day_count(run.pk, request.user, request.data.get("day_count"), note)
@@ -117,6 +118,7 @@ def run_hold(request, run_id):
     run = get_object_or_404(PayrollRun.objects.select_related("company", "snapshot"), pk=run_id)
     employee_service.hold(run.pk, request.data.get("employee_code", ""), request.user, request.data.get("reason", ""))
     run.refresh_from_db()
+    dispatch.notify_data_changed(run)
     return Response({"run": P.run_detail(run, request.user, with_workflow=False)})
 
 

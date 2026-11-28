@@ -22,4 +22,14 @@ def run_summary(r: PayrollRun):
         "employee_count": (r.result or {}).get("employee_count"), "calculated_at": _dt(r.calculated_at),
         "base_run_id": r.base_run_id, "policy_overrides": r.policy_overrides, "updated_at": _dt(r.updated_at),
         "workflow_backend": r.workflow_backend,
+        **_people(r),
     }
+
+
+def _people(r: PayrollRun) -> dict:
+    """How many people of the month wait for HR data or are on hold (everyone else is in its pay)."""
+    counts = {"waiting": 0, "on_hold": 0}
+    if r.run_type == PayrollRun.TYPE_REGULAR:
+        for status in r.employee_states.filter(status__in=list(counts)).values_list("status", flat=True):
+            counts[status] += 1
+    return {"people_waiting": counts["waiting"], "people_on_hold": counts["on_hold"]}

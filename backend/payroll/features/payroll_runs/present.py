@@ -14,7 +14,7 @@ from . import cycle
 from . import employees as employee_service
 from . import runs as run_service
 from .inputs import _in_period
-from .models import ChangeRequest, PayrollRun
+from .models import ChangeRequest, PayrollRun, RunEmployee
 from .summary import run_label, run_summary
 from .workflow import dispatch
 
@@ -127,6 +127,20 @@ def run_detail(r: PayrollRun, user, with_workflow: bool = True):
     out["day_count"] = run_service.effective_day_count(r)
     # Who is waiting for HR data or on hold this month (everyone else is in the calculation).
     out["employee_states"] = employee_service.present(r, user) if regular else None
+    if out["employee_states"] and out.get("comparison"):
+        # Someone left out because their HR data is missing has not left the company, and someone back from hold has not
+        # just joined: say what really happened.
+        absent = {p["code"]: p for p in out["employee_states"]["people"] if p["status"] in ("waiting", "on_hold")}
+        was_held = set(RunEmployee.objects.filter(run_id=out["comparison"].get("base_run_id"),
+                                                  status__in=[RunEmployee.ON_HOLD, RunEmployee.PAID_LATER]).values_list("employee_code", flat=True))
+        for e in out["comparison"]["employees"]:
+            p = absent.get(e["code"])
+            if e["status"] == "removed" and p:
+                state = "Waiting for HR data" if p["status"] == "waiting" else "On hold"
+                e["drivers"] = [{"kind": "held", "text": f"{state} ({p['missing_label']} missing): not paid in {out['period_label']}"}]
+            elif e["status"] == "added" and e["code"] in was_held:
+                e["drivers"] = [{"kind": "back_from_hold", "text": f"Back from hold: paid for {out['period_label']}, plus the salary "
+                                 f"held in {out['comparison'].get('before_label') or 'the month before'}"}]
     out["dues"] = [due(x) for x in r.dues.all()] if is_checker else []  # the finance head's only
     out["four_eyes_note"] = ""
     if status == PayrollRun.AWAITING_APPROVAL and is_checker and user.pk in (r.submitted_by_id, r.calculated_by_id):

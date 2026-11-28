@@ -106,6 +106,10 @@ def snapshot_summary(s):
         "status_label": s.get_status_display(), "created_at": _dt(s.created_at), "reviewed_by": _user(s.reviewed_by),
         "reviewed_at": _dt(s.reviewed_at), "employee_count": len(s.data.get("employees", [])), "content_hash": s.content_hash,
         "errors": levels.count("error"), "warnings": levels.count("warning"), "job_id": s.job_id,
+        # People missing a fact pay depends on: they wait, everyone else can be paid.
+        "incomplete": s.data.get("incomplete") or {},
+        # Read by the agent on its own, for the people waiting for HR data (not by a person pressing "Read").
+        "read_for_waiting": ((s.job.stats or {}).get("for_waiting") or []) if s.job_id else [],
     }
 
 

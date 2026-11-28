@@ -94,6 +94,8 @@ export default function RunPage({ runId, me }) {
         <Banner kind="warn" title="Needs to be calculated again:">{run.freshness.reasons.join("; ")}.</Banner>
       )}
       {run.four_eyes_note && <Banner kind="warn">{run.four_eyes_note}</Banner>}
+      {!draft && <PeopleOnHold run={run} onChange={() => reload(true)} />}
+      {!draft && <HeldSalariesPaid run={run} onExplain={openExplain} />}
       {(draft || ["calculate", "submit", "approve"].includes(shown)) && (
         <EmployeeNotes issues={(run.result?.issues || []).filter((i) => i.level !== "info")} employees={employees} onOpen={(code) => openExplain(code, "net_pay")} />
       )}
@@ -140,6 +142,107 @@ export default function RunPage({ runId, me }) {
         />
       )}
     </div>
+  );
+}
+
+// People whose HR data lacks a fact pay depends on: they wait (left out of the month's pay), and are put on hold by
+// the finance team employee or at the cut-off so everyone else is paid. A held salary is paid with a later month.
+function PeopleOnHold({ run, onChange }) {
+  const states = run.employee_states;
+  const [open, setOpen] = useState(null); // the code being put on hold
+  const [reason, setReason] = useState("");
+  const [busy, act] = useAction();
+  if (!states || !states.people.length) return null;
+  const waiting = states.people.filter((p) => p.status === "waiting");
+  const held = states.people.filter((p) => p.status !== "waiting");
+  const cutOff = states.cut_off ? day(states.cut_off) : null;
+  const final = run.status === "finalized";
+  const hold = async (p) => {
+    const ok = await act("hold", () => api.post(`/runs/${run.id}/hold`, { employee_code: p.code, reason }), `${p.name} is on hold. Everyone else can be paid.`);
+    if (ok) { setOpen(null); setReason(""); onChange(); }
+  };
+  return (
+    <div className="card tight hold-box" style={{ marginTop: 14 }}>
+      <div className="card-head">
+        <h3 style={{ margin: 0 }}>
+          {waiting.length > 0 ? `Waiting for HR data: ${waiting.length} ${waiting.length > 1 ? "people" : "person"}` : `On hold: ${held.length} ${held.length > 1 ? "people" : "person"}`}
+        </h3>
+        {waiting.length > 0 && cutOff && <span className="muted small">Cut-off {cutOff}</span>}
+      </div>
+      {waiting.length > 0 && (
+        <>
+          <p className="muted small" style={{ marginTop: 0 }}>
+            Left out of {run.period_label}'s pay until HR adds what is missing. Everyone else is calculated as usual.
+            {run.workflow?.backend === "temporal" ? " The agent reads the HR tool again for them, and HR is reminded." : ""}
+            {cutOff ? ` Still missing on ${cutOff}: put on hold automatically.` : ""}
+            {" "}The month cannot be submitted while anyone is waiting.
+          </p>
+          <div className="table-wrap"><table>
+            <thead><tr><th>Employee</th><th>Missing</th><th></th></tr></thead>
+            <tbody>{waiting.map((p) => (
+              <React.Fragment key={p.code}>
+                <tr>
+                  <td>{p.name} <span className="muted small">{p.code}</span></td>
+                  <td><span className="chip warn">{p.missing_label}</span></td>
+                  <td className="row" style={{ justifyContent: "flex-end" }}>
+                    {states.can_hold && <button className="small" onClick={() => { setOpen(p.code); setReason(""); }}>Put on hold</button>}
+                  </td>
+                </tr>
+                {open === p.code && (
+                  <tr><td colSpan={3} style={{ background: "var(--line-2)" }}>
+                    <div className="row" style={{ alignItems: "flex-end" }}>
+                      <Field label={`Why ${p.name} is put on hold`}>
+                        <input style={{ minWidth: 340 }} value={reason} autoFocus onChange={(e) => setReason(e.target.value)}
+                          placeholder="e.g. HR is confirming the work location" />
+                      </Field>
+                      <button className="primary" disabled={!!busy || !reason.trim()} onClick={() => hold(p)}>Put on hold</button>
+                      <button className="ghost" onClick={() => setOpen(null)}>Cancel</button>
+                    </div>
+                    <div className="muted small" style={{ marginTop: 6 }}>
+                      Not paid in {run.period_label}. The next month opens once HR adds the {p.missing_label}, and pays this month's salary then.
+                    </div>
+                  </td></tr>
+                )}
+              </React.Fragment>
+            ))}</tbody>
+          </table></div>
+        </>
+      )}
+      {held.length > 0 && (
+        <>
+          {waiting.length > 0 && <h4 style={{ margin: "14px 0 6px" }}>On hold</h4>}
+          <div className="table-wrap"><table>
+            <thead><tr><th>Employee</th><th>Missing</th><th>Why</th><th>Salary for {run.period_label}</th></tr></thead>
+            <tbody>{held.map((p) => (
+              <tr key={p.code}>
+                <td>{p.name} <span className="muted small">{p.code}</span></td>
+                <td>{p.missing_label || "—"}</td>
+                <td>{p.hold_reason}<div className="muted small">{p.held_by === "cut-off" ? "Held at the cut-off" : `Held by ${p.held_by}`}{p.held_at ? `, ${when(p.held_at)}` : ""}</div></td>
+                <td>{p.status === "paid_later"
+                  ? <span className="chip ok">Paid in {p.paid_in}</span>
+                  : <span className="chip warn">{final ? "Not paid yet: paid with the next month once HR adds it" : "Not paid this month"}</span>}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Salaries of earlier months that were on hold and are paid in this month.
+function HeldSalariesPaid({ run, onExplain }) {
+  const paid = (run.result?.employees || []).flatMap((e) => (e.facts?.arrears_detail || []).filter((a) => a.held).map((a) => ({ e, a })));
+  if (!paid.length) return null;
+  const label = (period) => { const [y, m] = period.split("-").map(Number); return `${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][m - 1]} ${y}`; };
+  return (
+    <Banner kind="info" title={`${run.period_label} also pays ${paid.length} held salar${paid.length > 1 ? "ies" : "y"}:`}>
+      {paid.map(({ e, a }, i) => (
+        <span key={`${e.code}-${a.period}`}>{i > 0 && ", "}
+          <a href="#" onClick={(ev) => { ev.preventDefault(); onExplain(e.code, "arrears"); }}>{e.name}</a> for {label(a.period)} ({inr(a.total)})
+        </span>
+      ))}. Each was on hold for missing HR data and is paid once, as arrears.
+    </Banner>
   );
 }
 
@@ -818,9 +921,15 @@ function Register({ run, changedCodes, onExplain }) {
   const options = [["all", "Everyone", emps.length], ["changed", "Paid differently", emps.filter(tests.changed).length],
     ["unpaid", "Unpaid days", emps.filter(tests.unpaid).length], ["arrears", "Arrears or one-time", emps.filter(tests.arrears).length]];
   if (added.size) options.push(["new", "New this month", added.size]);
+  const notHere = (run.employee_states?.people || []).filter((p) => p.status === "waiting" || p.status === "on_hold");
   return (
     <>
       <SectionTitle n="4" title="Payroll register" />
+      {notHere.length > 0 && (
+        <p className="muted small" style={{ marginTop: -4 }}>
+          Not in this month's pay: {notHere.map((p) => `${p.name} (${p.status === "waiting" ? "waiting for HR data" : "on hold"})`).join(", ")}.
+        </p>
+      )}
       <TableToolbar query={query} onQuery={setQuery} shown={rows.length} total={emps.length} noun="employees">
         <Segmented value={show} onChange={setShow} options={options} />
         {states.length > 1 && <Select value={state} onChange={setState} label="State" options={[["", "All states"], ...states.map((x) => [x, stateName(x)])]} />}

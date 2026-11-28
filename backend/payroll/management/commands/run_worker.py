@@ -19,8 +19,9 @@ class Command(BaseCommand):
         from temporalio.client import Client
         from temporalio.worker import Worker
 
-        from payroll.features.payroll_runs.workflow.activities import ALL
-        from payroll.features.payroll_runs.workflow.definitions import PayrollMonthWorkflow
+        from payroll.features.payroll_runs.workflow.activities import AGENT, ALL
+        from payroll.features.payroll_runs.workflow.definitions import (AGENT_TASK_QUEUE, EmployeeWorkflow, HRSyncWorkflow,
+                                                                        PayrollMonthWorkflow)
 
         async def main():
             while True:
@@ -32,10 +33,14 @@ class Command(BaseCommand):
                     await asyncio.sleep(options["retry_seconds"])
             self.stdout.write(self.style.SUCCESS(
                 f"Worker connected to {settings.TEMPORAL_ADDRESS}, task queue '{settings.TEMPORAL_TASK_QUEUE}'."))
-            with ThreadPoolExecutor(max_workers=8) as pool:
-                worker = Worker(client, task_queue=settings.TEMPORAL_TASK_QUEUE, workflows=[PayrollMonthWorkflow],
-                                activities=ALL, activity_executor=pool)
-                await worker.run()
+            with ThreadPoolExecutor(max_workers=8) as pool, ThreadPoolExecutor(max_workers=1) as agent_pool:
+                worker = Worker(client, task_queue=settings.TEMPORAL_TASK_QUEUE,
+                                workflows=[PayrollMonthWorkflow, EmployeeWorkflow, HRSyncWorkflow], activities=ALL, activity_executor=pool)
+                # The agent drives a browser: one read at a time, on its own queue, so a long read never holds up the months.
+                agent = Worker(client, task_queue=AGENT_TASK_QUEUE, activities=AGENT, activity_executor=agent_pool,
+                               max_concurrent_activities=1)
+                self.stdout.write(f"Agent worker on task queue '{AGENT_TASK_QUEUE}' (one read at a time).")
+                await asyncio.gather(worker.run(), agent.run())
 
         try:
             asyncio.run(main())

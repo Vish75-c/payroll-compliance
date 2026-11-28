@@ -17,7 +17,7 @@ from ..onboarding.models import OpeningBalance
 from ..rules.policies import versions_for
 from .change_kinds import EmployeeMonth, kind_of
 from .cycle import month_windows
-from .models import ChangeRequest, PayrollRun
+from .models import ChangeRequest, PayrollRun, RunEmployee
 
 
 def _in_period(emp: dict, window: Window) -> bool:
@@ -121,6 +121,36 @@ def _final_runs(run: PayrollRun) -> list[PayrollRun]:
     )
 
 
+def held_months(run: PayrollRun, finals: list[PayrollRun]) -> dict[str, list[RunEmployee]]:
+    """Earlier final months in which a person was on hold (not paid), whether or not that salary is paid since."""
+    final_ids = [r.pk for r in finals]
+    out: dict[str, list[RunEmployee]] = {}
+    for row in (RunEmployee.objects.filter(run_id__in=final_ids, status__in=[RunEmployee.ON_HOLD, RunEmployee.PAID_LATER])
+                .select_related("run").order_by("run__period")):
+        out.setdefault(row.employee_code, []).append(row)
+    return out
+
+
+def _paid_later_for(code: str, period: str, finals: list[PayrollRun], final_emp: dict) -> dict:
+    """What later final months already paid, as arrears, for one person's month."""
+    earned: dict = {}
+    gross = pf_emp = pf_er = eps_er = d(0)
+    for later in finals:
+        if later.period <= period:
+            continue
+        for a in ((final_emp[later.period].get(code) or {}).get("facts", {}).get("arrears_detail", [])):
+            if a["period"] != period:
+                continue
+            for k, v in a["components"].items():
+                earned[k] = earned.get(k, d(0)) + d(v)
+            gross += d(a["total"])
+            pf_emp += d(a["pf_employee"])
+            pf_er += d(a["pf_employer"])
+            eps_er += d(a.get("eps_employer"))
+    return {"earned": {k: to_str(v) for k, v in earned.items()}, "regular_gross": to_str(gross), "pf_employee": to_str(pf_emp),
+            "pf_employer": to_str(pf_er), "eps_employer": to_str(eps_er)}
+
+
 def build_run_input(run: PayrollRun) -> dict:
     company = run.company
     period = run.period_obj
@@ -148,6 +178,9 @@ def build_run_input(run: PayrollRun) -> dict:
     final_versions = {r.period: (r.input or {}).get("policy_versions", []) for r in finals}
     openings = opening_balances(run)
     esi_period_start = period.esi_contribution_start
+    held = held_months(run, finals)
+    past_windows: dict[str, dict] = {}  # the people's dates in an earlier month, for paying a held month
+    leave_from = min((r["start_date"] for r in data.get("leave", [])), default=None)
 
     employees = []
     incomplete = data.get("incomplete") or {}
@@ -232,6 +265,32 @@ def build_run_input(run: PayrollRun) -> dict:
                     "eps_employer": to_str(eps_er),
                 },
             })
+
+        for row in held.get(code, []):
+            # A month the person was on hold: not in that month's result, so the loop above skipped it. Paid now as
+            # arrears against what was paid for it so far (nothing, until a later month paid it).
+            past = row.run.period_obj
+            still_unpaid = row.status == RunEmployee.ON_HOLD
+            if not still_unpaid and past.months_until(period) > lookback:
+                continue
+            if row.run.period not in past_windows:
+                past_windows[row.run.period] = month_windows(company, past, data["employees"])
+            past_window = past_windows[row.run.period][code]
+            late = late_unpaid.get(row.run.period, d(0))
+            arrears_basis.append({
+                "period": row.run.period,
+                "policy_versions": (row.run.input or {}).get("policy_versions", []),
+                "unpaid_days": to_str(unpaid_days_for(data, code, past, past_window.attendance) + late),
+                **({"late_unpaid_days": to_str(late)} if late else {}),
+                "date_of_joining": emp.get("date_of_joining"),
+                "date_of_exit": emp.get("date_of_exit"),
+                "pf_applicable": emp.get("pf_applicable", True),
+                "pay_window": past_window.as_input(),
+                "paid": _paid_later_for(code, row.run.period, finals, final_emp),
+                **({"held": True, "hold_reason": row.hold_reason,
+                    "leave_covered": leave_from is None or leave_from <= past.end.isoformat()} if still_unpaid else {}),
+            })
+        arrears_basis.sort(key=lambda b: b["period"])
 
         employees.append({
             "code": code,

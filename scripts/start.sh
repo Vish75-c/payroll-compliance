@@ -84,7 +84,9 @@ if [ "$WORKFLOW_BACKEND" = "temporal" ]; then
 fi
 
 # ---- Demo HRMS (a second, different HR tool for the agent)
-start_bg mock-hrms .venv/bin/python -u mock_hrms/app.py --port 8100
+# Two people whose details HR has not entered yet (they wait in payroll until HR fills them in on /hr/missing).
+# Start with MOCK_HRMS_MISSING= (empty) for complete data.
+start_bg mock-hrms env MOCK_HRMS_MISSING="${MOCK_HRMS_MISSING-BL004:location,BL012:gender}" .venv/bin/python -u mock_hrms/app.py --port 8100
 # The same tool laid out like Keka: lists inside tabs and under Reports, details on each employee's Job tab
 start_bg mock-hrms-nested env MOCK_HRMS_LAYOUT=nested MOCK_HRMS_SESSION_PAGES=0 .venv/bin/python -u mock_hrms/app.py --port 8101
 
@@ -96,7 +98,7 @@ for _ in $(seq 1 30); do curl -sf "http://127.0.0.1:$PORT/api/me" >/dev/null && 
 cat <<MSG
 
   Payroll app     http://localhost:$PORT      maker / maker123 (prepares)   checker / checker123 (approves)
-  Demo HRMS       http://localhost:8100       hr.admin / demo123
+  Demo HRMS       http://localhost:8100       hr.admin / demo123   (details still to enter: /hr/missing)
   Keka-like HRMS  http://localhost:8101       hr.admin / demo123   (lists behind menus and tabs)
   Temporal UI     http://localhost:8233       (workflow backend: $WORKFLOW_BACKEND)
 

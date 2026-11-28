@@ -326,3 +326,136 @@ def test_the_cut_off_holds_everyone_still_waiting(demo):
     assert [h.employee_code for h in held] == [code]
     row = july.employee_states.get(employee_code=code)
     assert row.status == RunEmployee.ON_HOLD and row.held_by_system and "cut-off (28 Jul 2025)" in row.hold_reason
+
+
+def test_hold_through_the_api_and_what_the_run_page_gets(demo):
+    from .test_api import login
+
+    company, snapshot = demo
+    history(company)
+    maker = setup.system_user("maker")
+    code = snapshot.data["employees"][0]["code"]
+    july = runs.open_month(company, "2025-07", maker, snapshot=_with_gap(company, snapshot, maker, code))
+    web = login("maker")
+    page = web.get(f"/api/runs/{july.pk}").json()["employee_states"]
+    assert page["counts"]["waiting"] == 1 and page["can_hold"] and page["cut_off"] == "2025-07-28"
+    assert page["people"] == [{**page["people"][0], "code": code, "status": "waiting", "missing_label": "work state"}]
+    assert web.post(f"/api/runs/{july.pk}/hold", {"employee_code": code, "reason": ""}, content_type="application/json").status_code == 400
+    r = web.post(f"/api/runs/{july.pk}/hold", {"employee_code": code, "reason": "HR confirming"}, content_type="application/json")
+    assert r.status_code == 200
+    held = r.json()["run"]["employee_states"]["people"][0]
+    assert held["status"] == "on_hold" and held["held_by"] == "maker" and held["hold_reason"] == "HR confirming"
+    assert login("checker").post(f"/api/runs/{july.pk}/hold", {"employee_code": code, "reason": "x"},
+                                 content_type="application/json").status_code == 403
+
+
+def _hold_in_june(company, snapshot, code, field="work_state"):
+    """April and May final; June final with ``code`` on hold for a missing ``field``."""
+    from payroll.features.payroll_runs import employees
+
+    for m in ("2025-04", "2025-05"):
+        setup.run_month(company, m, log=lambda *a: None)
+    maker, checker = setup.system_user("maker"), setup.system_user("checker")
+    june = runs.open_month(company, "2025-06", maker, snapshot=_with_gap(company, snapshot, maker, code, field))
+    runs.review_data(june.pk, maker)
+    runs.calculate(june.pk, maker)
+    employees.hold(june.pk, code, maker, "HR is confirming the work location")
+    runs.submit(june.pk, maker)
+    runs.approve(june.pk, checker)
+    return runs.finalize(june.pk, checker)
+
+
+def _complete_data(company, snapshot, maker, data=None):
+    from payroll.models import DataSnapshot
+
+    s = DataSnapshot.objects.create(company=company, source_kind="spreadsheet", source_system="Spreadsheet",
+                                    data=data or dict(snapshot.data), content_hash=f"complete-{DataSnapshot.objects.count()}", checks=[])
+    return snapshots.approve(s, maker)
+
+
+def test_a_held_salary_is_paid_in_full_with_the_next_month_and_only_once(demo):
+    from payroll.features.payroll_runs.inputs import build_run_input
+    from payroll.models import RunEmployee
+    from payroll_engine.engine import calculate_month
+
+    company, snapshot = demo
+    maker, checker = setup.system_user("maker"), setup.system_user("checker")
+    code = snapshot.data["employees"][0]["code"]
+    june = _hold_in_june(company, snapshot, code)
+    assert code not in {e["code"] for e in june.result["employees"]}
+
+    complete = _complete_data(company, snapshot, maker)  # HR adds the work state
+    # What June would have paid with the data complete: the held salary must be exactly this.
+    probe = PayrollRun(pk=june.pk, company=company, period="2025-06", run_type="regular", snapshot=complete,
+                       knowledge_date=june.knowledge_date)
+    owed = next(e for e in calculate_month(build_run_input(probe))["employees"] if e["code"] == code)["amounts"]["regular_gross"]
+
+    july = runs.open_month(company, "2025-07", maker, snapshot=complete)
+    runs.review_data(july.pk, maker)
+    july = runs.calculate(july.pk, maker)
+    person = emp(july, code)
+    line = next(l for l in person["lines"] if l["code"] == "arrears")
+    june_line = next(c for c in line["children"] if c["code"] == "arrears.2025-06")
+    assert june_line["label"] == "Salary for June 2025 (was on hold)" and june_line["amount"] == owed
+    assert "on hold (HR is confirming the work location)" in june_line["reason"] and "held then for missing HR data" in line["reason"]
+    held = [a for a in person["facts"]["arrears_detail"] if a.get("held")]
+    assert [(a["period"], a["total"]) for a in held] == [("2025-06", owed)]
+    # Arrears are June's held salary plus any other month's revision (here a raise HR recorded late for May).
+    assert int(person["amounts"]["arrears"]) == sum(int(a["total"]) for a in person["facts"]["arrears_detail"])
+    runs.submit(july.pk, maker)
+    runs.approve(july.pk, checker)
+    july = runs.finalize(july.pk, checker)
+    row = june.employee_states.get(employee_code=code)
+    assert row.status == RunEmployee.PAID_LATER and row.paid_in_run_id == july.pk
+
+    august = runs.open_month(company, "2025-08", maker, snapshot=complete)  # opens: nobody on hold without data
+    runs.review_data(august.pk, maker)
+    august = runs.calculate(august.pk, maker)
+    assert not [a for a in emp(august, code)["facts"]["arrears_detail"] if a["period"] == "2025-06"]  # never paid twice
+
+
+def test_a_held_salary_is_paid_even_with_arrears_turned_off(demo):
+    from payroll.features.rules import policies as rule_policies
+
+    company, snapshot = demo
+    maker = setup.system_user("maker")
+    code = snapshot.data["employees"][0]["code"]
+    _hold_in_june(company, snapshot, code)
+    rule_policies.add_version(company=company, key="arrears_policy", jurisdiction="", effective_from=date(2025, 7, 1),
+                              payload={"enabled": False, "lookback_months": 12}, title="No arrears", note="", user=maker)
+    july = runs.open_month(company, "2025-07", maker, snapshot=_complete_data(company, snapshot, maker))
+    runs.review_data(july.pk, maker)
+    july = runs.calculate(july.pk, maker)
+    assert [a["period"] for a in emp(july, code)["facts"]["arrears_detail"]] == ["2025-06"]
+
+
+def test_a_held_month_without_its_salary_stops_the_month(demo):
+    company, snapshot = demo
+    maker = setup.system_user("maker")
+    code = snapshot.data["employees"][0]["code"]
+    _hold_in_june(company, snapshot, code)
+    # HR adds the missing fact, but enters the person's salary only from August: June's salary is unknown.
+    data = dict(snapshot.data)
+    data["compensation"] = [dict(r, effective_from="2025-08-01") if r["employee_code"] == code else r for r in data["compensation"]]
+    july = runs.open_month(company, "2025-07", maker, snapshot=_complete_data(company, snapshot, maker, data))
+    runs.review_data(july.pk, maker)
+    july = runs.calculate(july.pk, maker)
+    with pytest.raises(RuleViolation, match="June 2025 was not paid \\(on hold\\), but the HR data has no salary for June 2025"):
+        runs.submit(july.pk, maker)
+
+
+def test_nobody_is_put_on_hold_in_march(demo):
+    from datetime import date as _date
+
+    from payroll.features.payroll_runs import employees
+    from payroll.models import RunEmployee
+
+    company, snapshot = demo
+    maker = setup.system_user("maker")
+    code = snapshot.data["employees"][0]["code"]
+    march = runs.open_month(company, "2026-03", maker, snapshot=_with_gap(company, snapshot, maker, code))
+    with pytest.raises(RuleViolation, match="last month of the financial year") as exc:
+        employees.hold(march.pk, code, maker, "waiting")
+    assert exc.value.code == "year_end"
+    assert employees.hold_waiting_at_cut_off(march.pk, today=_date(2026, 3, 31)) == []
+    assert march.employee_states.get(employee_code=code).status == RunEmployee.WAITING
