@@ -15,7 +15,7 @@ from decimal import Decimal
 from payroll_engine.money import d, round_amount, to_str
 from payroll_engine.periods import Period, Window, overlap_days
 
-from .canonical import COMP_COMPONENTS, IGNORE, MONTH_TARGET_PREFIX, is_valid_target, target_info
+from .canonical import COMP_COMPONENTS, IGNORE, MONTH_TARGET_PREFIX, PART_TARGET_PREFIX, is_valid_target, target_info
 from .values import (
     ValueError_,
     guess_approved,
@@ -74,6 +74,15 @@ def default_value_maps(rows: list[dict], mapping: dict[str, str]) -> dict:
         values = sorted({normalize_text(r.get(h, "")) for r in rows for h in breakdown} - {""})
         out["leave.breakdown"] = {v: ("half" if guess_half(v) else "full") for v in values}
     return out
+
+
+def _without_hra(structure: dict) -> dict:
+    """The salary structure for someone without HRA: HRA's share goes to the part that takes the rest."""
+    comps = [dict(x) for x in structure["components"] if x["code"] != "hra"]
+    if comps and not any(x["share"] == "remainder" for x in comps):
+        target = next((x for x in comps if x["code"] == "special_allowance"), comps[-1])
+        target["share"] = "remainder"
+    return {**structure, "components": comps}
 
 
 def _split_gross(gross: Decimal, structure: dict) -> dict[str, Decimal]:
@@ -242,6 +251,12 @@ def build_snapshot(tables: list[dict], salary_structure: dict, first_seen: date,
                 f"{f' and {len(names) - 8} more' if len(names) > 8 else ''}).{hint}")
 
     compensation = _salary_history(c, compensation, first_seen, seen_before)
+    no_back_pay = [r for r in compensation if r.get("no_arrears") and r.get("effective_from") and r.get("recorded_on")
+                   and r["effective_from"] < r["recorded_on"][:7] + "-01"]
+    if no_back_pay:
+        c.check("info", "no_arrears", f"{len(no_back_pay)} salary revision{'s are' if len(no_back_pay) != 1 else ' is'} marked no arrears: "
+                + "; ".join(f"{r['employee_code']} from {r['effective_from']} is paid from {r['recorded_on'][:7]}, when it was recorded"
+                            for r in no_back_pay[:5]) + ". Months before are not paid again.")
 
     employees = []
     for code in sorted(final_employees):
@@ -252,9 +267,13 @@ def build_snapshot(tables: list[dict], salary_structure: dict, first_seen: date,
             emp["name"] = code
         employees.append({k: emp.get(k) for k in (
             "code", "name", "work_state", "gender", "date_of_joining", "date_of_exit", "pf_applicable", "esi_applicable",
-            "department", "designation", "pay_group") if emp.get(k) not in (None, "")})
+            "department", "designation", "pay_group") + PAYMENT_FIELDS + EXIT_FIELDS if emp.get(k) not in (None, "")})
 
+    _exits(c, tables, employees, final_employees)
     incomplete = _completeness(c, tables, employees, compensation, leave, attendance)
+    carried, waits = _payment_and_returns(c, tables, employees, first_seen)
+    for code, fields in waits.items():
+        incomplete.setdefault(code, []).extend(f for f in fields if f not in incomplete.get(code, []))
     data = {
         "schema_version": SCHEMA_VERSION,
         "employees": employees,
@@ -269,6 +288,8 @@ def build_snapshot(tables: list[dict], salary_structure: dict, first_seen: date,
     }
     if incomplete:  # who is missing which fact; only present when someone is, so complete data hashes as before
         data["incomplete"] = {code: incomplete[code] for code in sorted(incomplete)}
+    if carried:  # which payment and return facts this source has a column for (absent: the source never gives them)
+        data["fields_present"] = carried
     return data, c.checks
 
 
@@ -351,6 +372,7 @@ def _read_table(c: _Collector, table: dict, structure: dict, roster: bool):
             c.check("error", "bad_value", f"{where}: {exc}")
             return None
 
+    no_month: list[str] = []  # rows of unpaid days with no month in the row and none chosen for the table
     for index, row in enumerate(table["rows"], start=1):
         where = f"{table['name']} row {index}"
         values: dict[str, object] = {}
@@ -404,20 +426,40 @@ def _read_table(c: _Collector, table: dict, structure: dict, roster: bool):
         comp_amounts = {t.split(".", 1)[1]: d(v) for t, v in values.items() if t.startswith("comp.") and t.split(".", 1)[1] in COMP_COMPONENTS}
         gross = values.get("comp.monthly_gross")
         annual = values.get("comp.annual_ctc")
+        variable = d(values.get("comp.variable_annual") or 0)
+        # Other parts of salary under their own names (LTA, meal coupon...): annual in a file that gives the annual CTC.
+        parts = {t.split("@", 1)[1]: d(v) for t, v in values.items() if t.startswith(PART_TARGET_PREFIX) and d(v)}
+        monthly_parts = {k: round_amount(v / 12) for k, v in parts.items()} if annual else parts
+        row_structure = _without_hra(structure) if values.get("comp.hra_applicable") is False else structure
+        if parts and not (comp_amounts or gross or annual):
+            c.check("warning", "parts_without_salary", f"{where}: parts of salary ({', '.join(parts)}) are given without the salary; not used.")
+        if variable and not annual:
+            c.check("info", "variable_without_ctc", f"{where}: variable pay is given with a monthly salary, not an annual CTC, so it does "
+                    "not change the monthly pay. Pay it as a bonus in the month it is due.")
         if comp_amounts or gross or annual:
             components = dict(comp_amounts)
             if not components:
-                monthly = d(gross) if gross else round_amount(d(annual) / 12)
-                components = _split_gross(monthly, structure)
+                if gross:
+                    monthly = d(gross) - sum(monthly_parts.values(), Decimal(0))
+                else:  # the CTC less variable pay, a twelfth a month, less the parts that have their own names
+                    monthly = round_amount((d(annual) - variable) / 12) - sum(monthly_parts.values(), Decimal(0))
+                if monthly < 0:
+                    c.check("error", "parts_more_than_salary", f"{where}: the parts of salary and variable pay add up to more than the salary.")
+                    monthly = Decimal(0)
+                components = _split_gross(monthly, row_structure)
                 c.split_rows[table["name"]] = c.split_rows.get(table["name"], 0) + 1  # one summary check per table
             elif gross and sum(components.values()) < d(gross):
-                components = _fill_remainder(components, d(gross), structure)
+                components = _fill_remainder(components, d(gross), row_structure)
                 c.check("info", "remainder_split",
                         f"{where}: the listed parts add up to less than the monthly salary {gross}; the rest was split as "
                         + ", ".join(f"{k} {to_str(v)}" for k, v in components.items() if k not in comp_amounts) + " by the company's salary structure.")
             elif gross and sum(components.values()) > d(gross):
                 c.check("warning", "components_vs_gross",
                         f"{where}: parts of pay add up to {to_str(sum(components.values()))}, more than the gross {gross}. The parts were used.")
+            if values.get("comp.hra_applicable") is False and components.get("hra"):
+                c.check("warning", "hra_not_applicable", f"{where}: HRA is given ({to_str(components['hra'])}) but marked not applicable. The HRA given was used.")
+            for code, amount in monthly_parts.items():
+                components[code] = components.get(code, Decimal(0)) + amount
             c.comp.append({
                 "_key": key,
                 "effective_from": values.get("comp.effective_from"),
@@ -425,6 +467,9 @@ def _read_table(c: _Collector, table: dict, structure: dict, roster: bool):
                 "recorded_on_assumed": False,
                 "components": {k: to_str(v) for k, v in components.items()},
                 "source": where,
+                **({"variable_annual": to_str(variable)} if variable and annual else {}),
+                **({"no_arrears": True} if values.get("comp.arrears") is False else {}),
+                **({"nps_percent": to_str(d(values["comp.nps_percent"]))} if values.get("comp.nps_percent") not in (None, "") else {}),
             })
 
         # a raise given on the same row ("New salary", "Effective from")
@@ -492,9 +537,9 @@ def _read_table(c: _Collector, table: dict, structure: dict, roster: bool):
 
         # unpaid days given per month
         if "attendance.unpaid_days" in values:
-            period = values.get("attendance.period")
+            period = values.get("attendance.period") or (table.get("read_info") or {}).get("month")
             if not period:
-                c.check("error", "attendance_without_month", f"{where}: unpaid days without a month.")
+                no_month.append(where)
             else:
                 c.attendance.append({"_key": key, "period": period, "unpaid_days": values["attendance.unpaid_days"], "source": where})
         for header, period in month_cols.items():
@@ -504,6 +549,179 @@ def _read_table(c: _Collector, table: dict, structure: dict, roster: bool):
             parsed = parse("number", raw, f"{where}, column '{header}'")
             if parsed is not None:
                 c.attendance.append({"_key": key, "period": period, "unpaid_days": parsed, "source": f"{where}, column '{header}'"})
+    if no_month:
+        # One message for the table, not one per row: the file has no month (e.g. an "Employee LOP" export).
+        c.check("error", "attendance_without_month",
+                f"{table['name']}: {len(no_month)} row{'s' if len(no_month) != 1 else ''} of unpaid days but no month, in the file "
+                "or chosen for it. Choose the payroll month these unpaid days are for on this table's field mapping.",
+                table=table["name"], rows=len(no_month))
+
+
+# --------------------------------------------------------------------------- leaving
+
+# The PF return's exit reason codes (EPFO): C cessation (short service), S superannuation, R retirement,
+# D death in service, P permanent and total disablement.
+EXIT_CODES = {"C": "left the job", "S": "superannuation", "R": "retirement", "D": "death in service", "P": "permanent disablement"}
+EXIT_WORDS = [("D", ("death", "deceased", "expired", "died")), ("P", ("disablement", "disabled", "disability")),
+              ("S", ("superannuation",)), ("R", ("retired", "retirement")),
+              ("C", ("resign", "terminat", "contract expiry", "contract end", "abscond", "awol", "transfer", "dismiss", "cessation",
+                     "short service", "left", "quit", "sick", "deported", "others", "other"))]
+
+
+def exit_code(text) -> str | None:
+    """'Resigned' -> C, 'Retired' -> R. None when the text names several kinds (a template's list of choices) or none."""
+    norm = str(text or "").lower()
+    found = {code for code, words in EXIT_WORDS if any(w in norm for w in words)}
+    return found.pop() if len(found) == 1 else None
+
+
+def _exits(c: _Collector, tables, employees: list[dict], raw: dict[str, dict]):
+    """A leaving date counts only once the person has left; why they left becomes the PF exit reason code."""
+    mapped = {t for tb in tables for t in (tb.get("mapping") or {}).values()}
+    for emp in employees:
+        source = raw.get(emp["code"], {})
+        given = emp.pop("exit_reason", None)  # the words as written; only the PF code is kept
+        if source.get("has_left") is False and emp.get("date_of_exit"):
+            emp["planned_exit"] = emp.pop("date_of_exit")
+            c.check("info", "planned_exit", f"{emp['code']}: leaving on {emp['planned_exit']} is planned, not done (has left: no), "
+                    "so pay does not stop. When they leave, mark it in the HR tool and read again.", employee=emp["code"])
+        if not emp.get("date_of_exit"):
+            continue
+        code = "D" if source.get("deceased") else exit_code(given) if given else None
+        if code:
+            emp["exit_reason"] = code
+        elif given:
+            c.check("warning", "exit_reason_unclear", f"{emp['code']}: '{str(given)[:60]}' does not say clearly why they left "
+                    "(resigned, retired, superannuation, death or disablement), so no PF exit reason was set.", employee=emp["code"])
+    if "employee.exit_reason" in mapped or "employee.deceased" in mapped:
+        missing = [e["code"] for e in employees if e.get("date_of_exit") and not e.get("exit_reason")]
+        if missing:
+            c.check("warning", "no_exit_reason", f"{len(missing)} {'people' if len(missing) > 1 else 'person'} who left "
+                    f"{'have' if len(missing) > 1 else 'has'} no clear reason for leaving ({', '.join(missing[:5])}"
+                    f"{' and more' if len(missing) > 5 else ''}). The PF return needs one for each person who left.", employees=missing)
+
+
+# --------------------------------------------------------------------------- paying people and filing returns
+
+EXIT_FIELDS = ("exit_reason", "planned_exit")
+PAYMENT_FIELDS = ("pan", "bank_account", "ifsc", "name_at_bank", "payment_mode", "uan", "pf_number", "pf_joining_date", "esi_number",
+                  "date_of_birth", "pf_full_wage", "eps_full_wage", "eps_member", "international_worker", "lwf_covered", "pran")
+PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
+UAN_RE = re.compile(r"^[0-9]{12}$")
+ESI_RE = re.compile(r"^[0-9]{10}$")
+ACCOUNT_RE = re.compile(r"^[A-Z0-9]{6,20}$")
+PAYMENT_WORDS = {"bank": ("bank", "transfer", "neft", "rtgs", "imps", "online", "account credit", "direct deposit"),
+                 "cheque": ("cheque", "check"), "cash": ("cash",), "dd": ("demand draft", "dd")}
+
+
+def payment_mode(text: str) -> str | None:
+    """'Bank Transfer', 'NEFT' -> bank; 'Cheque' -> cheque. None when unclear (several modes, or none)."""
+    norm = re.sub(r"[^a-z ]+", " ", str(text).lower())
+    found = {mode for mode, words in PAYMENT_WORDS.items() if any(re.search(rf"\b{w}\b", norm) for w in words)}
+    return found.pop() if len(found) == 1 else None
+
+
+def _payment_and_returns(c: _Collector, tables, employees: list[dict], today: date) -> tuple[list[str], dict[str, list[str]]]:
+    """Check what paying people and filing the returns need, but only for the facts this HR data has a column for: a
+    source that never gives PANs is noted once, without stopping anyone. Returns (facts present, who waits for what).
+
+    Only a missing bank account (for someone paid by bank transfer) makes a person wait: there is nothing to pay into.
+    A missing PAN does not stop pay; TDS is then at least 20%. A missing UAN, ESI number or date of birth is a warning:
+    pay can be worked out, and new joiners often get a UAN after their first month."""
+    mapped = {t.split(".", 1)[1] for tb in tables for t in (tb.get("mapping") or {}).values() if str(t).startswith("employee.")}
+    present = [f for f in PAYMENT_FIELDS if f in mapped]
+    waits: dict[str, list[str]] = {}
+    if not employees:
+        return present, waits
+
+    def some(codes):
+        return ", ".join(codes[:5]) + (f" and {len(codes) - 5} more" if len(codes) > 5 else "")
+
+    def clean(emp, field, pattern):
+        """Upper-case and strip spaces; a value that is not in the right format is dropped (and counted as missing)."""
+        if not emp.get(field):
+            return False
+        value = re.sub(r"[\s-]", "", str(emp[field])).upper()
+        if pattern.match(value):
+            emp[field] = value
+            return True
+        emp.pop(field)
+        return None  # given, but not valid
+
+    def report(field, label, people, invalid, level, why):
+        if not people:
+            return
+        bad = f" ({len(invalid)} given but not in the right format: {some(invalid)})" if invalid else ""
+        c.check(level, f"no_{field}", f"{len(people)} of {len(employees)} employees have no valid {label} ({some(people)}){bad}. {why}",
+                employees=people)
+
+    for emp in employees:
+        if "payment_mode" in emp:
+            mode = payment_mode(emp["payment_mode"])
+            if mode is None:
+                c.check("warning", "payment_mode_unclear", f"{emp['code']}: payment mode '{emp['payment_mode'][:40]}' is not clear; "
+                        "treated as bank transfer.", employee=emp["code"])
+            emp["payment_mode"] = mode or "bank"
+
+    if "pan" in present:
+        missing, invalid = [], []
+        for emp in employees:
+            ok = clean(emp, "pan", PAN_RE)
+            if not ok:
+                missing.append(emp["code"])
+                if ok is None:
+                    invalid.append(emp["code"])
+        report("pan", "PAN", missing, invalid, "warning", "They are paid, but TDS is at least 20% (section 206AA) until HR adds a valid PAN.")
+    else:
+        c.check("info", "pan_not_in_data", "This HR data has no PAN column. PANs are needed for the TDS return and Form 16.")
+
+    if "bank_account" in present or "ifsc" in present:
+        by_transfer = [e for e in employees if e.get("payment_mode", "bank") == "bank"]
+        no_account, no_ifsc, bad_ifsc = [], [], []
+        for emp in by_transfer:
+            if not clean(emp, "bank_account", ACCOUNT_RE):
+                no_account.append(emp["code"])
+            ok = clean(emp, "ifsc", IFSC_RE)
+            if not ok:
+                no_ifsc.append(emp["code"])
+                if ok is None:
+                    bad_ifsc.append(emp["code"])
+        for field, label, people, invalid in (("bank_account", "bank account number", no_account, []),
+                                              ("ifsc", "IFSC", no_ifsc, bad_ifsc)):
+            if not people:
+                continue
+            if len(people) == len(by_transfer):  # nobody has it: a column is missing or mapped wrongly
+                report(field, label, people, invalid, "error", "Paid by bank transfer, so the salary has nowhere to go. "
+                       "Check that the column is read and mapped, or add it in the HR tool, and read again.")
+                continue
+            for code in people:
+                waits.setdefault(code, []).append(field)
+            report(field, label, people, invalid, "warning", "Paid by bank transfer, so they wait (left out of a month) until HR "
+                   "adds it, and are put on hold at the cut-off if it is still missing; everyone else is paid as usual.")
+    else:
+        c.check("info", "bank_not_in_data", "This HR data has no bank account column, so a bank transfer file cannot be made from it.")
+
+    pf_members = [e for e in employees if e.get("pf_applicable", True) is not False]
+    if "uan" in present:
+        missing = [e["code"] for e in pf_members if not clean(e, "uan", UAN_RE)]
+        report("uan", "UAN", missing, [], "warning", "PF is worked out as usual; the PF return needs a UAN for each member.")
+    if "esi_number" in present:
+        missing = [e["code"] for e in employees if e.get("esi_applicable", True) is not False and not clean(e, "esi_number", ESI_RE)]
+        report("esi_number", "ESI number", missing, [], "info", "Needed in the ESI return for the people ESI covers that month.")
+    if "date_of_birth" in present:
+        missing = [e["code"] for e in pf_members if not e.get("date_of_birth")]
+        report("date_of_birth", "date of birth", missing, [], "warning", "The pension share (EPS) stops at 58; without the date it cannot be checked.")
+        over = [e["code"] for e in pf_members if e.get("date_of_birth") and _age(e["date_of_birth"], today) >= 58]
+        if over:
+            c.check("info", "eps_age", f"{len(over)} PF member{'s are' if len(over) > 1 else ' is'} 58 or older ({some(over)}): "
+                    "none of the company's PF goes to the pension scheme for them.", employees=over)
+    return present, waits
+
+
+def _age(dob: str, on: date) -> int:
+    born = date.fromisoformat(dob)
+    return on.year - born.year - ((on.month, on.day) < (born.month, born.day))
 
 
 WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -552,6 +770,17 @@ def _day_values(c: _Collector, values: dict, value_maps: dict, start: str, end: 
 
 
 def _completeness(c: _Collector, tables, employees, compensation, leave, attendance):
+    for t in tables:
+        # Every column that does not feed pay, so a person can see nothing important (a PAN, a bank account) was dropped.
+        unused = [h for h in t["headers"] if (t.get("mapping") or {}).get(h, IGNORE) == IGNORE]
+        if unused:
+            shown = ", ".join(unused[:12]) + (f" and {len(unused) - 12} more" if len(unused) > 12 else "")
+            c.check("info", "columns_not_used", f"{t['name']}: {len(unused)} of {len(t['headers'])} columns are not used for pay: {shown}.",
+                    table=t["name"], columns=unused)
+        notes = (t.get("read_info") or {}).get("notes_skipped") or []
+        if notes:
+            c.check("info", "notes_skipped", f"{t['name']}: {len(notes)} line{'s' if len(notes) != 1 else ''} of text under the data "
+                    f"{'were' if len(notes) != 1 else 'was'} not read as people (\"{notes[0][:80]}\"…).", table=t["name"])
     for t in tables:
         info = t.get("read_info") or {}
         shown = info.get("total_shown")

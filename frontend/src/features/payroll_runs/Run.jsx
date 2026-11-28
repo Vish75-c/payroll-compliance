@@ -489,7 +489,7 @@ function ChangesSection({ run, onChange }) {
         {run.can.add_changes && (
           <>
             <div style={{ marginBottom: 10 }}>
-              <Segmented value={mode} onChange={setMode} options={[["form", "Add by hand"], ["type", (
+              <Segmented value={mode} onChange={setMode} options={[["form", "Add by hand"], ["upload", "Upload a sheet"], ["type", (
                 <span className="seg-icon" title="Type or speak a sentence">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
                     <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
@@ -497,7 +497,8 @@ function ChangesSection({ run, onChange }) {
                 </span>
               )]]} />
             </div>
-            {mode === "form" ? <AddByHand run={run} onAdded={onChange} /> : (
+            {mode === "upload" && <UploadInputs run={run} onUploaded={onChange} />}
+            {mode === "form" ? <AddByHand run={run} onAdded={onChange} /> : mode === "upload" ? null : (
               <>
                 <form className="instruction" onSubmit={propose}>
                   <div className="instruction-field">
@@ -515,14 +516,16 @@ function ChangesSection({ run, onChange }) {
           <div key={c.id} className="understood">
             <div className="row between">
               <span className="muted small">{c.proposal.entered_by_hand ? c.text : `“${c.text}”`} · {c.created_by?.name} · {when(c.created_at)}</span>
-              <span className="row">{c.proposal.entered_by_hand ? <span className="chip">Entered by hand</span> : c.ai && <AIChip provider={c.ai.provider} />}
+              <span className="row">{c.proposal.entered_by_hand ? <span className="chip">Entered by hand</span> : c.proposal.source === "monthly_inputs" ? <span className="chip">Uploaded sheet</span> : c.ai && <AIChip provider={c.ai.provider} />}
                 {c.ai?.reused_saved_answer && <span className="chip">saved answer reused</span>}
                 <StatusChip status={c.status === "confirmed" ? "accepted" : "pending_review"} label={c.status === "confirmed" ? "Confirmed" : "Proposed"} /></span>
             </div>
-            {!c.proposal.entered_by_hand && <div className="muted small" style={{ marginTop: 6 }}>The system understood:</div>}
-            {c.proposal.items.map((it, i) => <div key={i} className="item">{it.summary}</div>)}
-            {c.proposal.problems.map((p, i) => <Banner key={i} kind="bad">{p}</Banner>)}
-            {(c.proposal.notes || []).map((n, i) => <div key={i} className="muted small" style={{ marginBottom: 6 }}>Note from the AI: {n}</div>)}
+            {c.proposal.source === "monthly_inputs" ? <InputsReview change={c} canEdit={c.status === "proposed" && run.can.add_changes} onChange={onChange} /> : <>
+              {!c.proposal.entered_by_hand && <div className="muted small" style={{ marginTop: 6 }}>The system understood:</div>}
+              {c.proposal.items.map((it, i) => <div key={i} className="item">{it.summary}</div>)}
+              {c.proposal.problems.map((p, i) => <Banner key={i} kind="bad">{p}</Banner>)}
+              {(c.proposal.notes || []).map((n, i) => <div key={i} className="muted small" style={{ marginBottom: 6 }}>Note from the AI: {n}</div>)}
+            </>}
             {c.status === "proposed" && run.can.add_changes && (
               <div className="row">
                 <button className="good" disabled={!!busy || c.proposal.problems.length > 0} onClick={() => decide(c.id, "confirm")}>Yes, that's right</button>
@@ -546,6 +549,82 @@ function ChangesSection({ run, onChange }) {
         )}
       </div>
     </>
+  );
+}
+
+// A sheet of the month's one-time inputs from any HR tool (bonuses, reimbursements, recoveries, VPF, overtime, LOP).
+function UploadInputs({ run, onUploaded }) {
+  const [file, setFile] = useState(null);
+  const [busy, act] = useAction();
+  const send = async () => {
+    const form = new FormData();
+    form.append("file", file);
+    if (await act("upload", () => api.upload(`/runs/${run.id}/monthly-inputs`, form), "Sheet read. Check how each column is treated, then confirm.")) {
+      setFile(null);
+      onUploaded();
+    }
+  };
+  return (
+    <div className="upload-inputs">
+      <p className="muted small" style={{ marginTop: 0 }}>
+        A sheet of this month's bonuses, incentives, reimbursements, recoveries, voluntary PF, overtime or unpaid days, from any HR tool.
+        Each column gets a treatment and keeps its own name on the payslip. Nothing reaches pay until you confirm it.
+      </p>
+      <div className="row">
+        <input type="file" accept=".xlsx,.xlsm,.csv" onChange={(e) => setFile(e.target.files?.[0] || null)} aria-label="Sheet of this month's inputs" />
+        <button className="primary" disabled={!file || !!busy} onClick={send}>{busy ? "Reading…" : "Read the sheet"}</button>
+      </div>
+    </div>
+  );
+}
+
+// How each column of an uploaded sheet is treated, the amounts it gives, and what still needs a decision.
+function InputsReview({ change, canEdit, onChange }) {
+  const p = change.proposal;
+  const [busy, act] = useAction();
+  const [showItems, setShowItems] = useState(false);
+  const counts = useMemo(() => {
+    const out = {};
+    for (const h of p.headers) out[h] = p.rows.filter((r) => r[h] && Number(String(r[h]).replace(/[,₹\s]/g, "")) !== 0).length;
+    return out;
+  }, [p]);
+  const setTreatment = async (h, t) => {
+    if (await act(h, () => api.post(`/changes/${change.id}/columns`, { columns: { ...p.columns, [h]: t } }))) onChange();
+  };
+  const shown = p.headers.filter((h) => counts[h] > 0 || p.columns[h] !== "ignore");
+  const hidden = p.headers.length - shown.length;
+  const people = new Set(p.items.map((i) => i.employee_code)).size;
+  return (
+    <div className="inputs-review">
+      <div className="muted small" style={{ margin: "6px 0" }}>
+        {p.file} · {p.rows.length} row{p.rows.length !== 1 ? "s" : ""} · {p.items.length} amount{p.items.length !== 1 ? "s" : ""} for {people} {people !== 1 ? "people" : "person"}
+        {p.reused_mapping && <> · <span className="chip ok">column treatments reused</span></>}
+      </div>
+      {p.problems.map((x, i) => <Banner key={i} kind="bad">{x}</Banner>)}
+      <div className="table-wrap"><table>
+        <thead><tr><th>Column</th><th className="num">People</th><th className="num">Total</th><th>Treated as</th></tr></thead>
+        <tbody>{shown.map((h) => (
+          <tr key={h}>
+            <td><b>{h}</b>{p.suggestion?.[h] && !p.suggestion[h].sure && p.columns[h] === p.suggestion[h].treatment && <span className="chip warn" style={{ marginLeft: 6 }}>check</span>}</td>
+            <td className="num">{counts[h] || "—"}</td>
+            <td className="num">{p.totals?.[h] ? inr(p.totals[h]) : "—"}</td>
+            <td>{canEdit
+              ? <select value={p.columns[h]} disabled={!!busy} onChange={(e) => setTreatment(h, e.target.value)}>
+                  {Object.entries(change.treatments || {}).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                </select>
+              : (change.treatments || {})[p.columns[h]] || p.columns[h]}</td>
+          </tr>
+        ))}</tbody>
+      </table></div>
+      {hidden > 0 && <div className="muted small">{hidden} empty column{hidden > 1 ? "s" : ""} not shown.</div>}
+      {(p.notes || []).map((n, i) => <div key={i} className="muted small" style={{ marginTop: 6 }}>{n}</div>)}
+      {p.items.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <button className="ghost small" onClick={() => setShowItems((v) => !v)}>{showItems ? "Hide" : "Show"} the {p.items.length} amounts</button>
+          {showItems && p.items.map((it, i) => <div key={i} className="item">{it.summary}</div>)}
+        </div>
+      )}
+    </div>
   );
 }
 

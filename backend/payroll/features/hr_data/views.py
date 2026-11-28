@@ -239,6 +239,15 @@ def table_confirm(request, table_id):
 
 
 @api_view(["POST"])
+def table_month(request, table_id):
+    """The payroll month of a table of unpaid days that has no month column; for this upload only."""
+    table = get_object_or_404(RawTable, pk=table_id)
+    ingestion_jobs.set_month(table, request.user, str(request.data.get("month", "")))
+    table.job.refresh_from_db()
+    return Response(P.job(table.job, detail=True))
+
+
+@api_view(["POST"])
 def table_value_maps(request, table_id):
     """Preview which leave types/statuses a mapping would treat as unpaid/counted, before confirming."""
     table = get_object_or_404(RawTable, pk=table_id)

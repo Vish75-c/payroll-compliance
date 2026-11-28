@@ -25,6 +25,8 @@ class PFResult:
     policy: pol.Resolved
     wage_code: pol.Resolved | None
     wage_code_text: str = ""
+    full_wage: str = ""   # why this person's PF is on the whole wage (per person), if it is
+    eps_note: str = ""    # why the pension share is different for this person, if it is
 
 
 def compute_pf(emp: dict, earn: Earnings, versions: list[dict]) -> PFResult:
@@ -63,9 +65,11 @@ def compute_pf(emp: dict, earn: Earnings, versions: list[dict]) -> PFResult:
             )
 
     ceiling = d(rule.payload["wage_ceiling"])
-    emp_base = min(wage, ceiling) if policy.get("wage_base") == "capped" else wage
+    full_wage = ("an international worker: PF on the whole wage, with no ceiling" if emp.get("international_worker")
+                 else "PF on the whole wage for this person (HR data)" if emp.get("pf_full_wage") else "")
+    emp_base = min(wage, ceiling) if policy.get("wage_base") == "capped" and not full_wage else wage
     er_mode = policy.get("employer_wage_base", "same")
-    if er_mode == "same":
+    if full_wage or er_mode == "same":
         er_base = emp_base
     elif er_mode == "capped":
         er_base = min(wage, ceiling)
@@ -73,6 +77,7 @@ def compute_pf(emp: dict, earn: Earnings, versions: list[dict]) -> PFResult:
         er_base = wage
     method = rule.payload.get("rounding", "nearest")
     applicable = emp.get("pf_applicable", True) is not False
+    eps_note = ""
     if not applicable:
         employee = employer = eps = ZERO
     else:
@@ -80,7 +85,15 @@ def compute_pf(emp: dict, earn: Earnings, versions: list[dict]) -> PFResult:
         employer = round_amount(er_base * d(rule.payload["employer_rate"]), method)
         eps_rate = d(rule.payload.get("eps_rate", 0))
         eps_ceiling = d(rule.payload.get("eps_wage_ceiling", rule.payload["wage_ceiling"]))
-        eps = min(round_amount(min(wage, eps_ceiling) * eps_rate, method), employer) if eps_rate else ZERO
+        eps_wage = wage if emp.get("eps_full_wage") else min(wage, eps_ceiling)
+        eps = min(round_amount(eps_wage * eps_rate, method), employer) if eps_rate else ZERO
+        age = _age_on(emp.get("date_of_birth"), period.start)
+        if emp.get("eps_member") is False:
+            eps, eps_note = ZERO, "Not a member of the pension scheme (HR data), so all of the company's PF goes to the PF account."
+        elif age is not None and age >= 58:
+            eps, eps_note = ZERO, f"{age} years old: the pension share stops at 58, so all of the company's PF goes to the PF account."
+        elif emp.get("eps_full_wage") and eps_rate:
+            eps_note = "Pension share on the whole wage for this person (HR data), not on the ceiling."
     return PFResult(
         applicable=applicable,
         pf_wage=wage,
@@ -96,4 +109,15 @@ def compute_pf(emp: dict, earn: Earnings, versions: list[dict]) -> PFResult:
         policy=policy,
         wage_code=wage_code,
         wage_code_text=wage_code_text,
+        full_wage=full_wage,
+        eps_note=eps_note,
     )
+
+
+def _age_on(dob, day) -> int | None:
+    from .periods import parse_date
+
+    born = parse_date(dob) if dob else None
+    if born is None:
+        return None
+    return day.year - born.year - ((day.month, day.day) < (born.month, born.day))

@@ -1160,3 +1160,14 @@ tr.subtotal td { font-weight: 600; background: var(--panel-2); border-bottom: 1.
 .mv-waiting a { font-weight: 600; }
 .card.hold-box { border-left: 4px solid var(--warn); }
 .hold-box h4 { font-size: 13px; color: var(--ink-2); }
+
+/* Field mapping: the month of unpaid days given without one, and the columns not used for pay */
+.table-month { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px;
+  padding: 10px 14px; border-radius: 12px; background: var(--warn-soft); border-left: 4px solid var(--warn); }
+.table-month.is-set { background: var(--ok-soft); border-left-color: var(--ok); }
+.unused-cols { margin-top: 10px; }
+.unused-cols summary { cursor: pointer; font-size: 13px; color: var(--ink-2); font-weight: 600; }
+
+/* The month's inputs from an uploaded sheet */
+.upload-inputs { padding: 12px 14px; border: 1px dashed var(--line); border-radius: 12px; margin-bottom: 12px; }
+.inputs-review table select { min-width: 260px; }

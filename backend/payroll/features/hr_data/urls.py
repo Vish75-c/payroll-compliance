@@ -20,6 +20,7 @@ urlpatterns = [
     path("jobs/<int:job_id>/build-snapshot", views.job_build_snapshot),
     path("tables/<int:table_id>/confirm-mapping", views.table_confirm),
     path("tables/<int:table_id>/value-maps", views.table_value_maps),
+    path("tables/<int:table_id>/month", views.table_month),
     path("snapshots/<int:snapshot_id>", views.snapshot_detail),
     path("snapshots/<int:snapshot_id>/approve", views.snapshot_approve),
     path("snapshots/<int:snapshot_id>/reject", views.snapshot_reject),

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -52,7 +53,41 @@ def _to_table(name: str, grid: list[list[str]]) -> dict | None:
         if not any(cells):
             continue
         rows.append(dict(zip(headers, cells)))
-    return {"name": name, "headers": headers, "rows": rows, "read_info": {"method": "spreadsheet", "header_row": best_index + 1}}
+    notes = []
+    while rows and _is_note(rows[-1]):
+        notes.insert(0, " ".join(v for v in rows.pop().values() if v))
+    info = {"method": "spreadsheet", "header_row": best_index + 1}
+    if notes:
+        info["notes_skipped"] = notes
+    return {"name": name, "headers": headers, "rows": rows, "read_info": info}
+
+
+def _is_note(row: dict) -> bool:
+    """A line of text under the data, such as an export template's "Notes: Columns in red are mandatory", not a person.
+
+    Only rows at the end of the sheet are looked at, and only if every filled cell reads as a sentence or a heading
+    ("Notes:"): an employee ID, an amount or a date anywhere in the row makes it data."""
+    filled = [v for v in row.values() if v]
+    if not filled:
+        return False
+    for value in filled:
+        if _looks_numeric(value) or _looks_like_date(value) or _looks_like_code(value):
+            return False
+        if not (value.endswith(":") or len(value.split()) >= 3):
+            return False
+    return True
+
+
+DATE_LIKE = re.compile(r"^\d{1,4}[-/. ](\d{1,2}|[A-Za-z]{3,9})[-/. ]\d{1,4}$")
+CODE_LIKE = re.compile(r"^(?=.*\d)[A-Za-z0-9/_.-]{2,}$")  # E0001, BL-016, MH/BAN/123
+
+
+def _looks_like_date(text: str) -> bool:
+    return bool(DATE_LIKE.match(text.strip()))
+
+
+def _looks_like_code(text: str) -> bool:
+    return bool(CODE_LIKE.match(text.strip()))
 
 
 def _looks_numeric(text: str) -> bool:
@@ -69,6 +104,10 @@ def read_spreadsheet(filename: str, content: bytes) -> list[dict]:
         workbook = load_workbook(io.BytesIO(content), data_only=True, read_only=True)
         tables = []
         for sheet in workbook.worksheets:
+            # Some exports declare a wrong sheet size (e.g. "A1" for a whole table). Excel ignores it; the fast reader
+            # trusts it and would see one cell. Measure the sheet from its rows instead.
+            if hasattr(sheet, "reset_dimensions"):
+                sheet.reset_dimensions()
             grid = [[_cell_text(v) for v in row] for row in sheet.iter_rows(values_only=True)]
             table = _to_table(sheet.title, grid)
             if table and table["rows"]:

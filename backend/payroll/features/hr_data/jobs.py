@@ -10,6 +10,7 @@ from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 from payroll_engine.hashing import sha256
+from payroll_engine.periods import Period
 
 from payroll.shared.permissions import RuleViolation, require_role
 
@@ -19,6 +20,7 @@ from .canonical import IGNORE, heuristic_mapping, normalize_header, target_info
 from .models import Connector, FieldMapping, IngestionJob, RawTable
 from .normalize import default_value_maps, validate_mapping
 from .spreadsheet import read_spreadsheet
+from .values import parse_period
 
 # Which payroll fields belong in each kind of table, so an exact column name is only trusted where it makes sense
 # (an "End Date" on employee pages is the exit date's neighbour, not a leave's end).
@@ -341,6 +343,24 @@ def confirm(table: RawTable, user, mapping: dict, value_maps: dict | None = None
     return fm
 
 
+def set_month(table: RawTable, user, month: str) -> RawTable:
+    """The payroll month of a table of unpaid days that has no month column (e.g. an "Employee LOP" export).
+
+    Kept on this upload's table, not in the field mapping: the mapping is reused for next month's file with the
+    same columns, and must never carry this month into it."""
+    require_role(user, "maker", "choose the month of the unpaid days")
+    if table.job.snapshots.exists():
+        raise RuleViolation("HR data was already built from this read; upload the file again to change its month.")
+    try:
+        period = str(parse_period(month))
+    except ValueError as exc:
+        raise RuleViolation(f"'{month}' is not a month, e.g. 2025-07.") from exc
+    table.read_info = {**(table.read_info or {}), "month": period}
+    table.save(update_fields=["read_info"])
+    job_log(table.job, f"'{table.name}': {user.username} set its unpaid days as {Period.parse(period).label}.")
+    return table
+
+
 # --------------------------------------------------------------------------- spreadsheet
 
 UPLOAD_DATASETS = {"": "", "employees": "Employees", "compensation": "Salary", "leave": "Leave", "attendance": "Attendance"}
@@ -424,10 +444,19 @@ def run_spreadsheet_job(company, user, files: list[tuple[str, bytes, str]], conn
     job.status = "needs_mapping"
     job.save()
     job_log(job, f"Read {len(tables)} table(s): {_describe(tables)}")
+    _log_notes(job, tables)
     for problem in problems:
         job_log(job, problem, "error")
     store_tables(job, tables)
     return job
+
+
+def _log_notes(job: IngestionJob, tables: list[dict]):
+    for t in tables:
+        notes = t["read_info"].get("notes_skipped") or []
+        if notes:
+            job_log(job, f"{t['name']}: {len(notes)} line{'s' if len(notes) != 1 else ''} of text under the data "
+                         f"{'were' if len(notes) != 1 else 'was'} not read as people: " + " | ".join(n[:120] for n in notes))
 
 
 def add_spreadsheet_files(job: IngestionJob, user, files: list[tuple[str, bytes, str]]) -> IngestionJob:
@@ -447,6 +476,7 @@ def add_spreadsheet_files(job: IngestionJob, user, files: list[tuple[str, bytes,
     job.finished_at = timezone.now()
     job.save(update_fields=["status", "error", "finished_at"])
     job_log(job, f"{user.username} added {len(tables)} table(s): {_describe(tables)}")
+    _log_notes(job, tables)
     for problem in problems:
         job_log(job, problem, "error")
     store_tables(job, tables)

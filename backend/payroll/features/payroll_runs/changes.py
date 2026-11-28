@@ -140,6 +140,10 @@ def confirm(change: ChangeRequest, user) -> ChangeRequest:
         change.ai.reviewed_by = user
         change.ai.reviewed_at = timezone.now()
         change.ai.save(update_fields=["status", "reviewed_by", "reviewed_at"])
+    if change.proposal.get("source") == "monthly_inputs":
+        from . import monthly_inputs
+
+        monthly_inputs.remember(change, user)
     _invalidate_open_runs(run, user, "a change was confirmed")
     record(run, user, "change_confirmed", "Confirmed: " + " ".join(i["summary"] for i in change.proposal["items"]), change_id=change.pk)
     return change

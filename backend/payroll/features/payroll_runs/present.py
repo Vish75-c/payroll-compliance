@@ -12,6 +12,7 @@ from ..dues.present import due
 from ..hr_data.present import snapshot_summary
 from . import cycle
 from . import employees as employee_service
+from . import monthly_inputs
 from . import runs as run_service
 from .inputs import _in_period
 from .models import ChangeRequest, PayrollRun, RunEmployee
@@ -33,6 +34,8 @@ def change(c: ChangeRequest):
         "id": c.pk, "period": c.period, "run_id": c.run_id, "text": c.text, "status": c.status, "proposal": c.proposal,
         "ai": ai(c.ai), "created_by": _user(c.created_by), "created_at": _dt(c.created_at), "decided_by": _user(c.decided_by),
         "decided_at": _dt(c.decided_at),
+        # An uploaded sheet of the month's inputs: the treatments a column can have, for the review.
+        **({"treatments": monthly_inputs.TREATMENTS} if (c.proposal or {}).get("source") == monthly_inputs.SOURCE else {}),
     }
 
 

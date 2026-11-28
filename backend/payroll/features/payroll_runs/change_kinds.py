@@ -274,6 +274,7 @@ class OneTime(Kind):
             "amount": item["amount"],
             "taxable": item.get("taxable", True),
             "source_text": change.text,
+            **({"exemption": item["exemption"]} if item.get("exemption") else {}),
         })
 
 
@@ -450,9 +451,33 @@ class SalaryRevision(Kind):
         month.set_salary(item["effective_from"], item["components"])
 
 
+class VoluntaryPF(Kind):
+    """More PF the employee chose to pay this month (VPF): taken from net pay into the same PF account."""
+    type = "vpf"
+
+    def apply(self, item, month, change):
+        month.one_time.append({"ref": f"change:{change.pk}", "kind": "vpf", "code": "vpf", "label": item.get("label") or "Voluntary PF",
+                               "amount": item["amount"], "source_text": change.text})
+
+
+class InKind(Kind):
+    """A perquisite (taxed, not paid in cash) or a TDS amount entered for the month instead of the one worked out."""
+
+    def __init__(self, type_: str):
+        self.type = type_
+
+    def apply(self, item, month, change):
+        month.one_time.append({"ref": f"change:{change.pk}", "kind": self.type, "code": item.get("item") or self.type,
+                               "label": item.get("label") or self.type.replace("_", " ").capitalize(), "amount": item["amount"],
+                               "source_text": change.text})
+
+
 KINDS: dict[str, Kind] = {k.type: k for k in (
+    InKind("perquisite"),
+    InKind("tds_override"),
     OneTime("one_time_earning", earning=True),
     OneTime("one_time_deduction", earning=False),
+    VoluntaryPF(),
     UnpaidDays(),
     ExtraUnpaidDays(),
     PastUnpaidDays(),

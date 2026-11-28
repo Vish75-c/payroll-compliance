@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import policies as pol
 from .earnings import compute_earnings
 from .explain import DEDUCTION, INFO, Line
-from .money import ZERO, d, inr, round_amount
+from .money import ZERO, d, inr, pct, round_amount
 from .periods import Period, parse_date
 from .tax import annual_tax
 
@@ -74,6 +74,16 @@ def compute_tds(emp, period, versions, gross, non_taxable, one_time_taxable):
         elif tds_paid > trace.total:
             formula = f"Tax already deducted ({inr(tds_paid)}) covers the year's tax ({inr(trace.total)}), so ₹0"
 
+    # No valid PAN (section 206AA): TDS is at least 20% of the taxable pay, when there is tax to deduct at all.
+    no_pan_rate = d(rule.payload.get("no_pan_min_rate", "0.20"))
+    no_pan = bool(emp.get("no_pan")) and trace.total > 0
+    if no_pan:
+        floor = round_amount(max(ZERO, current_taxable) * no_pan_rate, monthly_method)
+        if floor > tds:
+            formula = (f"No valid PAN: at least {pct(no_pan_rate)} of this month's taxable pay ({inr(current_taxable)}) = {inr(floor)}, "
+                       f"more than the {inr(tds)} worked out, so {inr(floor)}")
+            tds = floor
+
     future_text = ""
     if future_pay:
         if len(set(future_pay)) == 1:
@@ -104,6 +114,9 @@ def compute_tds(emp, period, versions, gross, non_taxable, one_time_taxable):
         reason = "Spread the remaining tax on regular pay over the months left and apply the tax adjustment on one-time pay this month."
     else:
         reason = "Estimate the year's pay, work out the year's tax, subtract the tax already taken, and spread the rest over the months left."
+    if no_pan:
+        reason += (f" No valid PAN in the HR data: TDS is at least {pct(no_pan_rate)} of taxable pay (section 206AA) "
+                   "until HR adds the PAN.")
     line = Line(code="tds", label="Income tax (TDS)", amount=tds, category=DEDUCTION, formula=formula, reason=reason,
                 rules=[rule.ref, policy.ref], children=children,
                 inputs={"projected_income": projected, "taxable_income": taxable, "annual_tax": trace.total,

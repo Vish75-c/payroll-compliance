@@ -365,6 +365,40 @@ export function JobPage({ jobId, me }) {
   );
 }
 
+// Unpaid days given without a month (e.g. an "Employee LOP" export): the finance team employee says which payroll
+// month they are for. Kept for this upload only; next month's file with the same columns is asked again.
+function TableMonth({ table, isMaker, onSaved }) {
+  const chosen = table.read_info?.month || "";
+  const [month, setMonth] = useState(chosen);
+  const [busy, act] = useAction();
+  const save = async () => {
+    const out = await act("month", () => api.post(`/tables/${table.id}/month`, { month }), "Month saved");
+    if (out) onSaved();
+  };
+  return (
+    <div className={`table-month${chosen ? " is-set" : ""}`}>
+      <div>
+        <b>{chosen ? "Unpaid days for" : "These unpaid days have no month."}</b>{" "}
+        {chosen ? <span>{new Date(`${chosen}-01`).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</span>
+          : <span className="muted">Choose the payroll month they are for. It is asked for each upload, so next month's file is never given this month.</span>}
+      </div>
+      {isMaker && (
+        <div className="row">
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Payroll month of the unpaid days" />
+          <button className={chosen ? "" : "primary"} disabled={!!busy || !month || month === chosen} onClick={save}>{chosen ? "Change" : "Save month"}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// "FULL ICICI MEAL COUPON" -> "icici_meal_coupon": the same name the server gives an "other part of salary".
+const PART_SKIP = new Set(["full", "monthly", "annual", "amount", "rs", "inr", "pm", "pa"]);
+function partCode(header) {
+  const norm = String(header).toLowerCase().replace(/₹/g, " ").replace(/_/g, " ").replace(/#/g, " no ").replace(/[^a-z0-9 ]+/g, " ");
+  return norm.split(/\s+/).filter((w) => w && !PART_SKIP.has(w)).join("_").slice(0, 40) || "other_part";
+}
+
 function TableMapping({ table, catalogue, isMaker, onSaved }) {
   const m = table.mapping;
   const [mapping, setMapping] = useState(m?.mapping || {});
@@ -405,6 +439,9 @@ function TableMapping({ table, catalogue, isMaker, onSaved }) {
   const unsure = table.headers.filter((h) => !m?.confirmed && suggestion[h] && suggestion[h].target !== "ignore"
     && mapping[h] === suggestion[h].target && (suggestion[h].confidence || 0) < LOW_CONFIDENCE);
   const labelOf = (key) => Object.values(groups).flat().find((t) => t.key === key)?.label || key;
+  const unused = columns.filter((h) => (mapping[h] || "ignore") === "ignore");
+  const targets = Object.values(mapping);
+  const needsMonth = targets.includes("attendance.unpaid_days") && !targets.includes("attendance.period");
   return (
     <div className="card">
       <div className="card-head">
@@ -443,8 +480,11 @@ function TableMapping({ table, catalogue, isMaker, onSaved }) {
                     <select className="target" disabled={!isMaker} value={mapping[h] || "ignore"} onChange={(e) => setTarget(h, e.target.value)}>
                       <option value="ignore">— Not used —</option>
                       {Object.entries(groups).map(([g, ts]) => (
-                        <optgroup key={g} label={g}>{ts.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}</optgroup>
+                        <optgroup key={g} label={g}>{ts.map((t) => t.dynamic
+                          ? <option key={t.key} value={`${t.dynamic}${partCode(h)}`}>{t.label}</option>
+                          : <option key={t.key} value={t.key}>{t.label}</option>)}</optgroup>
                       ))}
+                      {mapping[h]?.startsWith("comp.part@") && mapping[h] !== `comp.part@${partCode(h)}` && <option value={mapping[h]}>Other part of salary: {mapping[h].split("@")[1].replace(/_/g, " ")}</option>}
                       {mapping[h]?.startsWith("attendance.unpaid_days@") && <option value={mapping[h]}>Unpaid days in {mapping[h].split("@")[1]}</option>}
                     </select>
                   </td>
@@ -457,6 +497,19 @@ function TableMapping({ table, catalogue, isMaker, onSaved }) {
             </tbody>
           </table>
         </div>
+      )}
+      {m && needsMonth && <TableMonth table={table} isMaker={isMaker} onSaved={onSaved} />}
+      {m && unused.length > 0 && (
+        <details className="unused-cols">
+          <summary>{unused.length} of {columns.length} columns are not used for pay</summary>
+          <p className="muted small">{unused.join(", ")}</p>
+          <p className="muted small">Check nothing here matters for pay (for example a PAN or a bank account); if it does, choose its payroll field above.</p>
+        </details>
+      )}
+      {(info.notes_skipped || []).length > 0 && (
+        <p className="muted small" style={{ marginTop: 8 }}>
+          Not read as people ({info.notes_skipped.length} line{info.notes_skipped.length > 1 ? "s" : ""} of text under the data): “{info.notes_skipped[0].slice(0, 90)}”{info.notes_skipped.length > 1 ? " …" : ""}
+        </p>
       )}
       {movedToSalary.length > 0 && (
         <p className="muted small" style={{ marginTop: 8 }}>

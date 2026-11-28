@@ -23,6 +23,11 @@ def create_from_job(job: IngestionJob, user) -> DataSnapshot:
     unmapped = [t.name for t in tables if t.mapping is None or not t.mapping.confirmed_at]
     if unmapped:
         raise RuleViolation("Confirm the field mapping first for: " + ", ".join(unmapped))
+    no_month = [t.name for t in tables if needs_month(t) and not (t.read_info or {}).get("month")]
+    if no_month:
+        # Asked before anything is built, so the month can still be chosen on this upload.
+        raise RuleViolation("Choose the payroll month of the unpaid days in " + ", ".join(no_month)
+                            + ": the file has no month column.", code="month_needed")
     today = timezone.localdate()
     structure = engine_policies.resolve_company(versions_for(job.company), "salary_structure", Period.of(today)).payload
     seen_before: dict[str, str] = {}
@@ -57,6 +62,12 @@ def create_from_job(job: IngestionJob, user) -> DataSnapshot:
     job.status = "done"
     job.save(update_fields=["status"])
     return snapshot
+
+
+def needs_month(table) -> bool:
+    """Unpaid days are mapped but no column gives their month (e.g. an "Employee LOP" export)."""
+    targets = set((table.mapping.mapping if table.mapping else {}).values())
+    return "attendance.unpaid_days" in targets and "attendance.period" not in targets
 
 
 # Where a fact came from, or how its date was found, is not part of the fact itself.

@@ -15,8 +15,10 @@ urlpatterns = [
     path("runs/<int:run_id>/possible-absences", views.run_possible_absences),
     path("runs/<int:run_id>/possible-absences/dismiss", views.run_dismiss_absence),
     path("runs/<int:run_id>/hold", views.run_hold),
+    path("runs/<int:run_id>/monthly-inputs", views.run_monthly_inputs),
     path("runs/<int:run_id>/files/<str:name>", views.run_file),
     path("runs/<int:run_id>/export", views.run_register_preview),
     path("runs/<int:run_id>/<str:action>", views.run_action),
+    path("changes/<int:change_id>/columns", views.change_columns),
     path("changes/<int:change_id>/<str:decision>", views.change_decide),
 ]

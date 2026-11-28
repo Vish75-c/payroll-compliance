@@ -36,6 +36,8 @@ STATUTORY_KEYS = {
     "professional_tax": "Professional tax",
     "income_tax": "Income tax (TDS)",
     "wage_definition": "Labour Codes wage definition (50% rule)",
+    "exit_exemptions": "Tax exemptions at leaving (gratuity, leave encashment)",
+    "lwf": "Labour Welfare Fund",
 }
 
 COMPANY_DEFAULTS: dict[str, dict] = {
@@ -333,6 +335,21 @@ def _v_income_tax(p, e):
         _num(row, "rate", e, minimum=0, maximum=1)
 
 
+def _v_exit_exemptions(p, e):
+    for name in ("gratuity_limit", "leave_encashment_limit", "gratuity_days", "gratuity_month_days"):
+        _num(p, name, e, minimum=0)
+    _num(p, "gratuity_min_years", e, minimum=0, maximum=50)
+
+
+def _v_lwf(p, e):
+    months = p.get("months")
+    if not isinstance(months, list) or not months or any(not isinstance(m, int) or not 1 <= m <= 12 for m in months):
+        e.append("'months' must list the months it is deducted in, e.g. [6, 12]")
+    _num(p, "employee", e, minimum=0)
+    _num(p, "employer", e, minimum=0)
+    _num(p, "wage_limit", e, required=False, minimum=0)
+
+
 def _v_wage_definition(p, e):
     if not isinstance(p.get("enabled"), bool):
         e.append("'enabled' must be true or false")
@@ -468,6 +485,8 @@ _VALIDATORS = {
     "professional_tax": _v_pt,
     "income_tax": _v_income_tax,
     "wage_definition": _v_wage_definition,
+    "exit_exemptions": _v_exit_exemptions,
+    "lwf": _v_lwf,
     "lop": _v_lop,
     "rounding": _v_rounding,
     "pf_policy": _v_pf_policy,

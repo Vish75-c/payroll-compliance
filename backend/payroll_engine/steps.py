@@ -42,6 +42,9 @@ class EmployeeCalc:
     one_time_earnings: Decimal = ZERO
     one_time_taxable: Decimal = ZERO
     other_deductions: Decimal = ZERO
+    vpf: Decimal = ZERO  # voluntary PF: more PF from the employee, into the same PF account
+    perquisites: Decimal = ZERO  # benefits in kind: taxed, never paid in cash
+    tds_override: Decimal | None = None  # a TDS amount entered for this month instead of the one worked out
     deduction_lines: list[Line] = field(default_factory=list)
     gross: Decimal = ZERO
     pf: PFResult | None = None
@@ -238,6 +241,19 @@ def one_time_items(c: EmployeeCalc):
         reason = "One-time item confirmed by the payroll maker"
         if source:
             reason += f' from the instruction "{source}"'
+        if item.get("kind") == "vpf":
+            c.vpf += amount  # added to the employee's PF (see pf_employee), not a separate deduction
+            continue
+        if item.get("kind") == "perquisite":
+            c.perquisites += amount
+            c.amounts[f"perquisite.{code}"] = c.amounts.get(f"perquisite.{code}", ZERO) + amount
+            c.lines.append(Line(code=f"perquisite.{code}", label=f"{label} (perquisite)", amount=amount, category=INFO, formula=inr(amount),
+                                reason="The taxable value of a benefit given in kind: added to taxable pay for TDS. It is not paid in "
+                                       "cash, so it is not part of gross or net pay.", inputs={"ref": item.get("ref", "")}))
+            continue
+        if item.get("kind") == "tds_override":
+            c.tds_override = (c.tds_override or ZERO) + amount
+            continue
         if item.get("kind") == "deduction":
             c.other_deductions += amount
             c.amounts[f"deduction.{code}"] = c.amounts.get(f"deduction.{code}", ZERO) + amount
@@ -248,13 +264,53 @@ def one_time_items(c: EmployeeCalc):
             )
         else:
             c.one_time_earnings += amount
+            exempt, exempt_text = _exit_exemption(c, item.get("exemption"), amount) if item.get("taxable", True) else (ZERO, "")
             if item.get("taxable", True):
-                c.one_time_taxable += amount
+                c.one_time_taxable += amount - exempt
             c.amounts[f"one_time.{code}"] = c.amounts.get(f"one_time.{code}", ZERO) + amount
+            if exempt:
+                c.amounts[f"exempt.{code}"] = c.amounts.get(f"exempt.{code}", ZERO) + exempt
             c.lines.append(
                 Line(code=f"one_time.{code}", label=label, amount=amount, category=EARNING, formula=inr(amount),
-                     reason=reason + ("" if item.get("taxable", True) else " (not taxable)"), inputs={"ref": item.get("ref", "")})
+                     reason=reason + ("" if item.get("taxable", True) else " (not taxable)") + (f" {exempt_text}" if exempt_text else ""),
+                     inputs={"ref": item.get("ref", "")})
             )
+
+
+def _service_years(doj, doe) -> int:
+    """Completed years of service, a part year of six months or more counting as a year (as for gratuity)."""
+    from .periods import parse_date
+
+    start, end = parse_date(doj), parse_date(doe)
+    if not start or not end or end < start:
+        return 0
+    months = (end.year - start.year) * 12 + end.month - start.month - (1 if end.day < start.day else 0)
+    return months // 12 + (1 if months % 12 >= 6 else 0)
+
+
+def _exit_exemption(c: EmployeeCalc, kind: str | None, amount: Decimal) -> tuple[Decimal, str]:
+    """The tax-exempt part of a payment made on leaving, under the stored rule (limits are for a whole working life;
+    earlier exempt amounts are not known here)."""
+    if not kind:
+        return ZERO, ""
+    rule = pol.resolve(c.versions, "exit_exemptions", c.period, "IN")
+    if rule is None:
+        return ZERO, ""
+    p = rule.payload
+    if kind == "leave_encashment":
+        exempt = min(amount, d(p["leave_encashment_limit"]))
+        return exempt, f"Leave encashment on leaving: {inr(exempt)} is not taxed (exempt up to {inr(d(p['leave_encashment_limit']))})."
+    if kind == "gratuity":
+        years = _service_years(c.emp.get("date_of_joining"), c.emp.get("date_of_exit"))
+        early_ok = c.emp.get("exit_reason") in ("D", "P")  # death or disablement: no minimum service
+        if years < int(p.get("gratuity_min_years", 5)) and not early_ok:
+            return ZERO, f"Gratuity after {years} year{'s' if years != 1 else ''} of service (less than {p.get('gratuity_min_years', 5)}): all of it is taxed."
+        wage = sum((d(c.amounts.get(f"rate.{k}", 0)) for k in ("basic", "da")), ZERO)
+        formula = round_amount(wage * d(p["gratuity_days"]) / d(p["gratuity_month_days"]) * years)
+        exempt = min(amount, d(p["gratuity_limit"]), formula)
+        return exempt, (f"Gratuity: {inr(exempt)} is not taxed, the least of the amount, {inr(d(p['gratuity_limit']))}, and "
+                        f"{p['gratuity_days']}/{p['gratuity_month_days']} × {inr(wage)} basic + DA × {years} years = {inr(formula)}.")
+    return ZERO, ""
 
 
 def gross_pay(c: EmployeeCalc):
@@ -289,6 +345,10 @@ def pf_employee(c: EmployeeCalc):
     if not pf.applicable:
         formula = "Not applicable"
         reason = "This employee is not a PF member this month (marked in HR data)."
+    elif pf.full_wage:
+        formula = f"{pct(pf_rate)} of {money_text(pf.employee_base)} = {inr(pf.employee)}"
+        reason = f"This person is {pf.full_wage}" if pf.full_wage.startswith("an ") else pf.full_wage + "."
+        reason = reason.rstrip(".") + f": {money_text(pf.pf_wage)}."
     elif pf.policy.get("wage_base") == "capped":
         capped = pf.pf_wage > ceiling
         formula = (
@@ -327,6 +387,12 @@ def pf_employee(c: EmployeeCalc):
         formula = f"{inr(pf.employee)} this month + {inr(on_arrears)} on arrears = {inr(total)}"
     elif c.arrears_months and pf.applicable:
         reason += " The arrears add no PF: PF for the revised months comes out the same as what was already paid."
+    if c.vpf:
+        children.append(Line(code="pf_employee.vpf", label="Voluntary PF (VPF)", amount=c.vpf, category=INFO, formula=inr(c.vpf),
+                             reason="More PF the employee chose to pay this month, into the same PF account. No company share on it."))
+        formula = f"{formula} + {inr(c.vpf)} voluntary PF = {inr(total + c.vpf)}"
+        total += c.vpf
+        c.amounts["vpf"] = c.vpf
     c.lines.append(
         Line(code="pf_employee", label="PF (employee 12%)", amount=total, category=DEDUCTION,
              formula=formula, reason=reason, rules=[pf.rule.ref, pf.policy.ref] + ([pf.wage_code.ref] if pf.wage_code and pf.addback else []),
@@ -447,11 +513,39 @@ def professional_tax(c: EmployeeCalc):
 
 
 def income_tax(c: EmployeeCalc):
-    line, amounts = compute_tds(c.emp, c.period, c.versions, c.gross, c.one_time_earnings - c.one_time_taxable, c.one_time_taxable)
+    # Perquisites are taxable pay that is not paid in cash: they count for tax as if paid, and are never in gross pay.
+    line, amounts = compute_tds(c.emp, c.period, c.versions, c.gross + c.perquisites, c.one_time_earnings - c.one_time_taxable,
+                                c.one_time_taxable + c.perquisites)
+    if c.tds_override is not None:
+        worked = amounts["tds"]
+        amounts["tds"] = c.tds_override
+        amounts["tds_worked_out"] = worked
+        line.amount = c.tds_override
+        line.formula = f"TDS set for this month: {inr(c.tds_override)} (worked out: {inr(worked)})"
+        line.reason = ("A TDS amount was entered for this month and is used instead of the one worked out. Later months spread "
+                       "the year's remaining tax as usual, counting what was deducted now.")
     c.lines.append(line)
     c.amounts.update(amounts)
     c.tds = amounts["tds"]
     c.add_deduction("TDS", c.tds)
+
+
+def labour_welfare_fund(c: EmployeeCalc):
+    """The state's Labour Welfare Fund, in the months its rule says, for people covered (rule stored as data per state)."""
+    if c.emp.get("lwf_covered") is False:
+        return
+    rule = pol.resolve(c.versions, "lwf", c.period, f"IN-{c.state}") if c.state else None
+    if rule is None or c.period.month not in rule.payload.get("months", []):
+        return
+    limit = rule.payload.get("wage_limit")
+    if limit and c.gross > d(limit):
+        return
+    employee, employer = d(rule.payload["employee"]), d(rule.payload["employer"])
+    c.lines.append(Line(code="lwf", label="Labour Welfare Fund", amount=employee, category=DEDUCTION, formula=inr(employee),
+                        reason=f"{STATES.get(c.state, c.state)} Labour Welfare Fund for {c.period.label}; the company adds {inr(employer)}.",
+                        rules=[rule.ref]))
+    c.amounts["lwf_employee"], c.amounts["lwf_employer"] = employee, employer
+    c.add_deduction("LWF", employee)
 
 
 def other_deductions(c: EmployeeCalc):
@@ -497,6 +591,8 @@ def pf_employer(c: EmployeeCalc):
         formula = f"{inr(pf.employer)} this month + {inr(on_arrears)} on arrears = {inr(total)}"
     reason = (f"Paid by the company on top of salary. Of this, {inr(eps)} goes to the pension scheme "
               f"({pct(eps_rate)} of PF wages up to {inr(d(pf.rule.payload.get('eps_wage_ceiling', ceiling)))}) and the rest to the PF account.")
+    if pf.eps_note:
+        reason = f"Paid by the company on top of salary. {pf.eps_note}" if not eps else f"Paid by the company on top of salary. Of this, {inr(eps)} goes to the pension scheme. {pf.eps_note}"
     if on_arrears or eps_on_arrears:
         reason = ("The company's share includes adjustments for earlier months. "
                   f"{inr(eps)} goes to the pension scheme and {inr(epf)} goes to the PF account.")
@@ -531,6 +627,51 @@ def esi_employer(c: EmployeeCalc):
     c.add_employer_contribution("ESI", employer)
 
 
+def employer_lwf_and_nps(c: EmployeeCalc):
+    """The company's Labour Welfare Fund share and its NPS contribution, on top of salary."""
+    if c.amounts.get("lwf_employer"):
+        er = d(c.amounts["lwf_employer"])
+        c.lines.append(Line(code="lwf_employer", label="Labour Welfare Fund (company)", amount=er, category=EMPLOYER, formula=inr(er),
+                            reason="The company's share of the Labour Welfare Fund, paid on top of salary."))
+        c.add_employer_contribution("Labour Welfare Fund", er)
+    rate = d(c.emp.get("nps_percent") or 0)
+    if rate > 0:
+        base = sum((c.earn.earned.get(k, ZERO) for k in ("basic", "da")), ZERO)
+        nps = round_amount(base * rate / 100)
+        reason = f"The company's NPS contribution: {num(rate)}% of basic + DA earned this month ({inr(base)})."
+        if rate > 14:
+            reason += " Above 14% of basic + DA the contribution is taxable for the employee; that part is not worked out here."
+            c.issues.append({"level": "warning", "message": f"Company NPS of {num(rate)}% is above 14% of basic + DA: the excess is taxable."})
+        c.lines.append(Line(code="nps_employer", label="NPS (company)", amount=nps, category=EMPLOYER, formula=f"{num(rate)}% × {inr(base)} = {inr(nps)}",
+                            reason=reason))
+        c.amounts["nps_employer"] = nps
+        c.add_employer_contribution("NPS", nps)
+
+
+def final_pay_deadline(c: EmployeeCalc):
+    """Under the Labour Codes, wages of someone who leaves are due within two working days of leaving."""
+    from datetime import timedelta
+
+    from .periods import parse_date
+
+    left = parse_date(c.emp.get("date_of_exit"))
+    if not left or not (c.period.start <= left <= c.period.end):
+        return
+    codes = pol.resolve(c.versions, "wage_definition", c.period, "IN")
+    if not codes or not codes.payload.get("enabled") or pol.resolve_company(c.versions, "labour_codes", c.period).get("apply") == "not_applied":
+        return
+    calendar = pol.resolve_company(c.versions, "work_calendar", c.period).payload
+    off = {["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].index(x) for x in calendar.get("weekly_off", [])}
+    holidays, day, working = set(calendar.get("holidays", [])), left, 0
+    while working < 2:
+        day += timedelta(days=1)
+        if day.weekday() not in off and day.isoformat() not in holidays:
+            working += 1
+    c.issues.append({"level": "warning", "code": "final_pay_deadline",
+                     "message": f"Left on {left:%d %b %Y}: under the Code on Wages, the final pay is due within two working days "
+                                f"of leaving, by {day:%d %b %Y}. Pay it apart if the month's pay date is later."})
+
+
 def cost_to_company(c: EmployeeCalc):
     cost = c.gross + sum((amount for _, amount in c.employer_contributions), ZERO)
     names = [name for name, _ in c.employer_contributions]
@@ -550,11 +691,14 @@ STEPS = (
     pf_employee,
     esi_employee,
     professional_tax,
+    labour_welfare_fund,
     income_tax,
     other_deductions,
     net_pay,
     pf_employer,
     esi_employer,
+    employer_lwf_and_nps,
+    final_pay_deadline,
     cost_to_company,
 )
 
@@ -576,7 +720,7 @@ def facts(c: EmployeeCalc) -> dict:
             for a in c.arrears_months
         ],
         "gross": to_str(c.gross),
-        "taxable_gross": to_str(c.gross - (c.one_time_earnings - c.one_time_taxable)),
+        "taxable_gross": to_str(c.gross - (c.one_time_earnings - c.one_time_taxable) + c.perquisites),
         "tds": to_str(c.tds),
         "unpaid_days": to_str(c.earn.lop_days),
         "contracted_gross": to_str(c.earn.contracted_gross),

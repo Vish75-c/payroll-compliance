@@ -22,6 +22,7 @@ from . import absences as absence_service
 from . import changes as change_service
 from . import employees as employee_service
 from . import exports
+from . import monthly_inputs
 from . import present as P
 from . import runs as run_service
 from .models import ChangeRequest, PayrollRun
@@ -110,6 +111,26 @@ def run_action(request, run_id, action):
         raise Http404
     run.refresh_from_db()
     return Response({"outcome": outcome, "run": P.run_detail(run, request.user, with_workflow=False)})
+
+
+@api_view(["POST"])
+def run_monthly_inputs(request, run_id):
+    """Upload the month's one-time inputs (bonuses, reimbursements, recoveries...) as one proposed change."""
+    run = get_object_or_404(PayrollRun.objects.select_related("company", "snapshot"), pk=run_id)
+    upload = request.FILES.get("file")
+    if not upload:
+        raise RuleViolation("Choose a file.")
+    monthly_inputs.upload(run, request.user, upload.name, upload.read())
+    run.refresh_from_db()
+    return Response({"run": P.run_detail(run, request.user, with_workflow=False)})
+
+
+@api_view(["POST"])
+def change_columns(request, change_id):
+    """Change how the columns of an uploaded sheet of the month's inputs are treated, before confirming it."""
+    change = get_object_or_404(ChangeRequest.objects.select_related("run"), pk=change_id)
+    monthly_inputs.set_columns(change, request.user, request.data.get("columns") or {})
+    return Response({"run": P.run_detail(change.run, request.user, with_workflow=False)})
 
 
 @api_view(["POST"])

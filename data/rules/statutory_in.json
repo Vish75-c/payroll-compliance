@@ -427,6 +427,20 @@
         "state_name": "Uttarakhand"
       },
       "note": "Uttarakhand does not charge professional tax on salaries. From secondary sources (payroll and tax guides), not the state's own notification: verify before relying on it. Sources: https://razorpay.com/learn/professional-tax/ ; https://www.paisabazaar.com/tax/professional-tax/ ; https://www.onsurity.com/guides/professional-tax-by-state"
+    },
+    {
+      "key": "exit_exemptions",
+      "jurisdiction": "IN",
+      "effective_from": "2023-04-01",
+      "title": "Tax exemptions at leaving: gratuity and leave encashment",
+      "note": "Income-tax Act s.10(10)(ii): gratuity exempt up to Rs 20 lakh (limit since 29 Mar 2018), for service of 5 years or more (any service on death or disablement), at 15/26 of the last month's basic + DA for each completed year (6 months or more counts as a year). s.10(10AA)(ii): leave encashment on leaving exempt up to Rs 25 lakh (CBDT notification, from 1 Apr 2023). Both limits are for a whole working life; earlier exempt amounts are not tracked here.",
+      "payload": {
+        "gratuity_limit": "2000000",
+        "gratuity_min_years": 5,
+        "gratuity_days": "15",
+        "gratuity_month_days": "26",
+        "leave_encashment_limit": "2500000"
+      }
     }
   ]
 }

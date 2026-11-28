@@ -37,8 +37,8 @@ TARGETS: list[Target] = [
            ("date of joining", "doj", "joining date", "joined on", "hire date", "date joined", "joining")),
     Target("employee.date_of_exit", "Date of leaving", "employee", "date",
            ("date of exit", "exit date", "leaving date", "date of leaving", "relieving date", "last working day", "termination date")),
-    Target("employee.pf_applicable", "PF member (yes/no)", "employee", "bool", ("pf applicable", "pf member", "epf applicable", "pf")),
-    Target("employee.esi_applicable", "ESI covered (yes/no)", "employee", "bool", ("esi applicable", "esi covered", "esi")),
+    Target("employee.pf_applicable", "PF member (yes/no)", "employee", "bool", ("pf applicable", "pf member", "epf applicable", "pf", "is employee eligible for pf", "eligible for pf", "pf eligible", "pf eligibility", "covered under pf", "epf eligible")),
+    Target("employee.esi_applicable", "ESI covered (yes/no)", "employee", "bool", ("esi applicable", "esi covered", "esi", "is employee eligible for esi", "eligible for esi", "esi eligible", "esi eligibility", "covered under esi", "esic applicable")),
     Target("employee.department", "Department (shown only)", "employee", "text", ("department", "dept")),
     Target("employee.pay_group", "Pay group", "employee", "text",
            ("pay group", "payroll group", "pay cycle group", "payroll cycle", "salary group", "pay group name"),
@@ -46,6 +46,67 @@ TARGETS: list[Target] = [
            "take people by department or work state."),
     Target("employee.designation", "Designation (shown only)", "employee", "text",
            ("designation", "job title", "title", "role", "job position", "position")),
+    # Leaving: whether a leaving date is real yet, and why the person left (the PF return needs an exit reason code).
+    Target("employee.has_left", "Has left (yes/no)", "employee", "bool",
+           ("has left the organization", "has left the organisation", "has left the organization?", "left the organization",
+            "left the organisation", "has left", "is relieved", "relieved", "exited", "has exited"),
+           "No: the date of leaving is only planned, so pay does not stop yet."),
+    Target("employee.exit_reason", "Why they left (PF exit reason)", "employee", "text",
+           ("pf leaving reason", "pf exit reason", "separation mode", "mode of separation", "exit reason", "leaving reason",
+            "separation type", "exit type", "reason of exit", "reason for exit"),
+           "Resigned, retired, superannuation, death or disablement: turned into the PF return's exit code."),
+    Target("employee.deceased", "Deceased (yes/no)", "employee", "bool", ("is deceased", "deceased", "is expired", "death")),
+    # What paying people and filing the returns need. Each is checked only when the HR data includes it.
+    Target("employee.pan", "PAN", "employee", "text",
+           ("pan", "pan number", "pan no", "pan card", "pan card number", "pan card no", "permanent account number", "income tax pan",
+            "employee pan"),
+           "Income-tax PAN (e.g. ABCDE1234F). Without a valid PAN, TDS is at least 20% (section 206AA)."),
+    Target("employee.bank_account", "Bank account number", "employee", "text",
+           ("bank account number", "bank account no", "bank account", "account number", "account no", "bank a c no", "a c no",
+            "salary account number", "salary account no", "bank ac no", "ac no", "beneficiary account number"),
+           "The account the salary is paid into. Missing for someone paid by bank transfer: they wait."),
+    Target("employee.ifsc", "IFSC", "employee", "text",
+           ("ifsc", "ifsc code", "bank ifsc", "ifsc no", "bank ifsc code", "ifs code"),
+           "The bank branch code (e.g. HDFC0001234). Missing or not valid for someone paid by bank transfer: they wait."),
+    Target("employee.name_at_bank", "Name at the bank", "employee", "text",
+           ("name as per bank records", "name as per bank", "name in bank", "account holder name", "beneficiary name",
+            "bank account name", "name as per bank account")),
+    Target("employee.payment_mode", "Payment mode", "employee", "text",
+           ("salary payment mode", "payment mode", "mode of payment", "pay mode", "payment type", "salary mode"),
+           "Bank transfer, cheque or cash. Only bank transfers go in the bank file."),
+    Target("employee.uan", "UAN", "employee", "text",
+           ("uan", "uan number", "uan no", "universal account number", "pf uan", "epf uan"),
+           "The 12-digit PF Universal Account Number. Needed for each member in the PF return."),
+    Target("employee.pf_number", "PF number", "employee", "text",
+           ("pf number", "pf no", "pf account number", "epf number", "epf no", "pf member id", "member id")),
+    Target("employee.pf_joining_date", "PF start date", "employee", "date",
+           ("pf joining date", "pf date of joining", "date of joining pf", "epf joining date", "pf start date")),
+    Target("employee.esi_number", "ESI number", "employee", "text",
+           ("esi number", "esi no", "esic number", "esic no", "esi ip number", "ip number", "insurance number", "esic ip number"),
+           "The 10-digit ESI insurance (IP) number. Needed in the ESI return for people covered."),
+    Target("employee.date_of_birth", "Date of birth", "employee", "date",
+           ("date of birth", "dob", "birth date", "d o b"),
+           "The date of birth on record (not a preferred birthday). The pension (EPS) share stops at 58."),
+    Target("employee.pf_full_wage", "PF on the full wage (yes/no)", "employee", "bool",
+           ("is employee eligible for excess epf contribution", "excess epf", "excess epf contribution", "pf on full wage",
+            "pf on full basic", "pf on actual wage", "pf without ceiling", "voluntary higher pf"),
+           "PF on the whole PF wage, not on the ₹15,000 ceiling, for this person."),
+    Target("employee.eps_full_wage", "Pension on the full wage (yes/no)", "employee", "bool",
+           ("is employee eligible for excess eps contribution", "excess eps", "excess eps contribution", "eps on full wage",
+            "higher pension", "eps on actual wage")),
+    Target("employee.eps_member", "Pension (EPS) member (yes/no)", "employee", "bool",
+           ("is existing member of eps", "existing eps member", "eps member", "eps applicable", "pension scheme member",
+            "member of eps"),
+           "No: none of the company's PF goes to the pension scheme (e.g. joined after Sep 2014 earning over ₹15,000)."),
+    Target("employee.lwf_covered", "Labour Welfare Fund covered (yes/no)", "employee", "bool",
+           ("is employee covered under lwf", "is employee covered under lwf?", "lwf covered", "lwf applicable", "covered under lwf", "lwf"),
+           "No: the state's Labour Welfare Fund is not deducted for this person."),
+    Target("employee.pran", "PRAN (NPS account)", "employee", "text",
+           ("pran", "pran number", "pran no", "nps pran", "permanent retirement account number"),
+           "The NPS account the company's NPS contribution is paid into."),
+    Target("employee.international_worker", "International worker (yes/no)", "employee", "bool",
+           ("is international employee", "international employee", "international worker", "is international worker"),
+           "International workers pay PF on their full wage, with no ceiling."),
 
     Target("comp.effective_from", "Salary effective from", "comp", "date",
            ("effective from", "effective date", "with effect from", "wef", "salary effective from", "applicable from",
@@ -67,7 +128,22 @@ TARGETS: list[Target] = [
            ("gross", "monthly gross", "gross salary", "monthly salary", "salary", "monthly ctc", "ctc per month",
             "gross pay", "wage", "contract wage", "current salary", "monthly pay", "pay"),
            "The whole monthly pay as one amount (often called wage or contract wage). The company's salary structure splits it into basic, HRA and special allowance."),
-    Target("comp.annual_ctc", "Annual CTC", "comp", "amount", ("ctc", "annual ctc", "annual salary", "yearly salary", "cost to company", "annual gross")),
+    Target("comp.annual_ctc", "Annual CTC", "comp", "amount", ("ctc", "annual ctc", "annual salary", "yearly salary", "cost to company", "annual gross",
+                                                               "total ctc", "full total ctc", "ctc annual", "ctc per annum", "gross ctc")),
+    Target("comp.variable_annual", "Variable pay (annual, not paid monthly)", "comp", "amount",
+           ("variable ctc", "full variable ctc", "variable pay", "annual variable pay", "variable component", "variable bonus annual",
+            "annual variable", "target variable pay"),
+           "Part of the CTC paid later as a bonus, not every month: monthly pay is (CTC − variable pay) ÷ 12."),
+    Target("comp.nps_percent", "Company NPS (% of basic + DA)", "comp", "number",
+           ("nps percentage", "nps percent", "nps %", "employer nps percentage", "nps contribution percentage", "corporate nps"),
+           "The company's NPS contribution as a % of basic + DA. Up to 14% is not taxed for the employee."),
+    Target("comp.hra_applicable", "HRA applicable (yes/no)", "comp", "bool",
+           ("hra applicable", "hra applicable yes 1 no 0", "is hra applicable", "hra eligible", "hra eligibility"),
+           "No: the salary structure's HRA share goes to the other parts of pay."),
+    Target("comp.arrears", "Pay arrears for this revision (yes/no)", "comp", "bool",
+           ("is arrear calculation required", "arrear calculation required", "arrears applicable", "calculate arrears", "pay arrears",
+            "arrear required", "arrears required"),
+           "No: a revision dated in the past applies only from the month being run, without back pay."),
 
     Target("revision.monthly_gross", "Revised monthly gross (raise on the same row)", "revision", "amount",
            ("revised salary", "new salary", "revised gross", "new monthly salary", "salary after raise", "revised monthly salary",
@@ -118,6 +194,19 @@ TARGETS: list[Target] = [
 TARGETS_BY_KEY = {t.key: t for t in TARGETS}
 IGNORE = "ignore"
 MONTH_TARGET_PREFIX = "attendance.unpaid_days@"
+# "Other part of salary": a component with the column's own name (LTA, meal coupon, books, stipend...). One field for
+# any HR tool's extra parts, instead of a field per name.
+PART_TARGET_PREFIX = "comp.part@"
+PART_WORDS = ("allowance", "coupon", "lta", "leave travel", "stipend", "periodical", "books", "meal", "food", "fuel", "telephone",
+              "internet", "uniform", "washing", "children education", "car", "driver", "commision", "commission", "consolidated")
+NOT_A_PART_WORDS = ("consultancy", "consultant", "remark", "note", "date", "applicable", "required", "percentage", "percent")
+
+
+def part_code(header: str) -> str:
+    """'FULL ICICI MEAL COUPON' -> 'icici_meal_coupon'; 'FULL LTA' -> 'lta' (a known part keeps its own name)."""
+    words = [w for w in normalize_header(header).split() if w not in ("full", "monthly", "annual", "amount", "rs", "inr", "pm", "pa")]
+    return "_".join(words)[:40] or "other_part"
+
 COMP_COMPONENTS = ["basic", "da", "hra", "special_allowance", "conveyance", "other_allowance"]
 GROUP_LABELS = {
     "employee": "Employee",
@@ -130,6 +219,9 @@ GROUP_LABELS = {
 
 
 def target_info(key: str) -> dict:
+    if key.startswith(PART_TARGET_PREFIX):
+        code = key.split("@", 1)[1]
+        return {"key": key, "label": f"Other part of salary: {code.replace('_', ' ')}", "group": "comp", "kind": "amount"}
     if key.startswith(MONTH_TARGET_PREFIX):
         return {"key": key, "label": f"Unpaid days in {key.split('@', 1)[1]}", "group": "attendance", "kind": "number"}
     if key == IGNORE:
@@ -145,15 +237,24 @@ def is_valid_target(key: str) -> bool:
         return True
     if key.startswith(MONTH_TARGET_PREFIX):
         return bool(re.fullmatch(r"\d{4}-\d{2}", key.split("@", 1)[1]))
+    if key.startswith(PART_TARGET_PREFIX):
+        code = key.split("@", 1)[1]
+        return bool(re.fullmatch(r"[a-z0-9_]{1,40}", code)) and code not in COMP_COMPONENTS
     return False
 
 
 def catalogue() -> list[dict]:
-    return [
+    out = [
         {"key": t.key, "label": t.label, "group": t.group, "group_label": GROUP_LABELS[t.group], "kind": t.kind,
          "synonyms": list(t.synonyms), "help": t.help}
         for t in TARGETS
     ]
+    # Chosen for a column, it becomes "comp.part@<the column's name>" (see part_code).
+    out.append({"key": "comp.part", "label": "Other part of salary (named after the column)", "group": "comp",
+                "group_label": GROUP_LABELS["comp"], "kind": "amount", "synonyms": [], "dynamic": PART_TARGET_PREFIX,
+                "help": "LTA, meal coupons, books, stipend or any other fixed part of pay. Taxable, not part of PF wages. "
+                        "In a file that gives the annual CTC, the amount is annual and part of the CTC."})
+    return out
 
 
 def normalize_header(text: str) -> str:
@@ -183,6 +284,11 @@ def month_column(header: str, default_year: int | None) -> str | None:
     return f"{MONTH_TARGET_PREFIX}{year:04d}-{month:02d}"
 
 
+# The fields a column may be suggested as, by the kind of table (the same limits the upload applies).
+HINT_GROUPS = {"employees": {"employee", "comp", "revision"}, "compensation": {"employee", "comp", "revision"},
+               "leave": {"employee", "leave"}, "attendance": {"employee", "presence", "attendance"}}
+
+
 def heuristic_mapping(headers: list[str], dataset_hint: str = "", default_year: int | None = None) -> dict[str, dict]:
     """Rule-based suggestion: {header: {"target", "confidence", "reason"}}. Used when AI is off, and as a cross-check."""
     scored: dict[str, list[tuple[float, str, str]]] = {}
@@ -192,12 +298,18 @@ def heuristic_mapping(headers: list[str], dataset_hint: str = "", default_year: 
         month_target = month_column(header, default_year)
         if month_target:
             options.append((0.95, month_target, "column names a month and unpaid leave"))
+        free_text = bool(re.search(r"\b(remarks?|notes?|feedback|comments?|description|reason)\b", norm))
         for t in TARGETS:
             for syn in t.synonyms:
                 if norm == syn:
                     options.append((1.0, t.key, f"same name as '{syn}'"))
+                elif free_text:
+                    continue  # "Employee Remarks" is free text, not the employee's name: only an exact name matches
                 elif len(syn) > 3 and re.search(rf"\b{re.escape(syn)}\b", norm):
                     options.append((0.6 + 0.3 * len(syn) / max(len(norm), 1), t.key, f"contains '{syn}'"))
+        allowed = HINT_GROUPS.get(dataset_hint)
+        if allowed:  # an employee list holds no leave or attendance, so "Date Of Death" is not a day present
+            options = [o for o in options if target_info(o[1])["group"] in allowed]
         scored[header] = sorted(options, key=lambda o: -o[0])
 
     # Which kind of table is this? Count confident matches per group.
@@ -260,4 +372,17 @@ def heuristic_mapping(headers: list[str], dataset_hint: str = "", default_year: 
             else:
                 result[header] = {"target": IGNORE, "confidence": 0.0,
                                   "reason": f"looked like '{target_info(info['target'])['label']}' but the table has no matching fields to go with it"}
+    # In a salary table, an unmatched column named like a part of pay (LTA, meal coupon, stipend...) is suggested as an
+    # "other part of salary" under its own name, for a person to confirm.
+    salary_table = "comp" not in incomplete or dataset_hint in ("compensation", "salary")
+    if salary_table:
+        for header in headers:
+            norm = normalize_header(header)
+            if result[header]["target"] != IGNORE or any(w in norm for w in NOT_A_PART_WORDS):
+                continue
+            if any(re.search(rf"\b{re.escape(w)}\b", norm) for w in PART_WORDS):
+                code = part_code(header)
+                if code not in COMP_COMPONENTS:
+                    result[header] = {"target": PART_TARGET_PREFIX + code, "confidence": 0.6,
+                                      "reason": "named like a part of pay: kept as its own part of salary"}
     return {h: result[h] for h in headers}

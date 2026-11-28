@@ -131,6 +131,8 @@ class RunEmployee(models.Model):
         "date_of_joining": "Date of joining",
         "work_state": "Work state",
         "gender": "Gender",
+        "bank_account": "Bank account number",
+        "ifsc": "IFSC",
     }
 
     run = models.ForeignKey(PayrollRun, on_delete=models.CASCADE, related_name="employee_states")

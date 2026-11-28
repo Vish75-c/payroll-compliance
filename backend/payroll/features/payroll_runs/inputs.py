@@ -41,8 +41,19 @@ def _known_compensation(rows: list[dict], knowledge_date: date) -> list[dict]:
         known = [min(rows, key=lambda r: r.get("effective_from") or "")]
     # Two records starting on the same day: the later one recorded is a correction and must win. The engine takes the
     # last record of a start date, so order by start date, then by when it was recorded.
+    known = [_without_back_pay(r) for r in known]
     known = sorted(known, key=lambda r: (r.get("effective_from") or "", r.get("recorded_on") or ""))
     return [{"effective_from": r.get("effective_from"), "components": r["components"]} for r in known]
+
+
+def _without_back_pay(row: dict) -> dict:
+    """A revision marked "no arrears" and dated before HR recorded it applies from the first day of the month it was
+    recorded in: months before were paid without it and are not paid again. The date is fixed by when HR recorded the
+    revision, so every later month sees the same date and nothing paid is taken back."""
+    if not row.get("no_arrears") or not row.get("recorded_on") or not row.get("effective_from"):
+        return row
+    recorded_month = parse_date(row["recorded_on"]).replace(day=1).isoformat()
+    return dict(row, effective_from=max(row["effective_from"], recorded_month))
 
 
 def override_versions(run: PayrollRun, versions: list[dict]) -> list[dict]:
@@ -149,6 +160,21 @@ def _paid_later_for(code: str, period: str, finals: list[PayrollRun], final_emp:
             eps_er += d(a.get("eps_employer"))
     return {"earned": {k: to_str(v) for k, v in earned.items()}, "regular_gross": to_str(gross), "pf_employee": to_str(pf_emp),
             "pf_employer": to_str(pf_er), "eps_employer": to_str(eps_er)}
+
+
+def _pay_facts(emp: dict, data: dict, period: Period | None = None) -> dict:
+    """The PF, TDS, LWF and NPS facts of a person the engine uses, only when the HR data gives them, so a month whose
+    data has none of them has exactly the input it always had."""
+    out = {k: emp[k] for k in ("date_of_birth", "pf_full_wage", "eps_full_wage", "eps_member", "international_worker", "exit_reason",
+                               "lwf_covered") if k in emp}
+    if period is not None:  # the company NPS % of the salary record in force this month
+        rows = [r for r in data.get("compensation", []) if r["employee_code"] == emp["code"] and (r.get("effective_from") or "") <= period.end.isoformat()]
+        latest = max(rows, key=lambda r: (r.get("effective_from") or "", r.get("recorded_on") or ""), default=None)
+        if latest and latest.get("nps_percent"):
+            out["nps_percent"] = latest["nps_percent"]
+    if "pan" in (data.get("fields_present") or []) and not emp.get("pan"):
+        out["no_pan"] = True  # the source keeps PANs, and this person has no valid one: TDS is at least 20%
+    return out
 
 
 def build_run_input(run: PayrollRun) -> dict:
@@ -310,6 +336,7 @@ def build_run_input(run: PayrollRun) -> dict:
                     "opening_tds": to_str(openings[code].tds) if code in openings else "0", "months": ytd_months},
             "arrears_basis": arrears_basis,
             "applied_changes": applied,
+            **_pay_facts(emp, data, period),
         })
 
     return {
